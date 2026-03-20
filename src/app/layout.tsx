@@ -17,6 +17,11 @@ export const metadata: Metadata = {
   description:
     "Intern HR- en operatieportaal voor Veilig Douchen. Beheer recruitment, personeel, agenda's en meer.",
   icons: { icon: "/favicon.ico" },
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
+  },
 };
 
 export default function RootLayout({
