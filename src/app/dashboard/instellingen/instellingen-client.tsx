@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 interface Props {
   googleConnected: boolean;
   googleStatus?: string;
@@ -8,6 +10,7 @@ interface Props {
   hasFacebook: boolean;
   hasGoogleSheets: boolean;
   hasCronSecret: boolean;
+  hasNmbrs: boolean;
 }
 
 function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
@@ -31,7 +34,74 @@ export function InstellingenClient({
   hasFacebook,
   hasGoogleSheets,
   hasCronSecret,
+  hasNmbrs,
 }: Props) {
+  const [nmbrsStatus, setNmbrsStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
+  const [nmbrsMessage, setNmbrsMessage] = useState('');
+  const [nmbrsImporting, setNmbrsImporting] = useState(false);
+  const [nmbrsImportResult, setNmbrsImportResult] = useState<string>('');
+  const [nmbrsSyncing, setNmbrsSyncing] = useState(false);
+  const [nmbrsSyncResult, setNmbrsSyncResult] = useState<string>('');
+
+  async function testNmbrs() {
+    setNmbrsStatus('testing');
+    setNmbrsMessage('');
+    try {
+      const res = await fetch('/api/integrations/nmbrs/test');
+      const json = await res.json();
+      if (json.ok) {
+        const companyNames = (json.companies as Array<{ name: string }>).map((c) => c.name).join(', ');
+        setNmbrsStatus('ok');
+        setNmbrsMessage(`Verbonden ✓ — Bedrijven: ${companyNames || '(geen)'}`);
+      } else {
+        setNmbrsStatus('error');
+        setNmbrsMessage(json.error ?? 'Verbinding mislukt.');
+      }
+    } catch {
+      setNmbrsStatus('error');
+      setNmbrsMessage('Netwerkfout — controleer de server.');
+    }
+  }
+
+  async function importFromNmbrs() {
+    setNmbrsImporting(true);
+    setNmbrsImportResult('');
+    try {
+      const res = await fetch('/api/integrations/nmbrs/import', { method: 'POST' });
+      const json = await res.json();
+      if (json.ok) {
+        setNmbrsImportResult(
+          `Geïmporteerd: ${json.imported}, overgeslagen: ${json.skipped}${json.errors?.length ? `, fouten: ${json.errors.join('; ')}` : ''}`
+        );
+      } else {
+        setNmbrsImportResult(`Fout: ${json.error}`);
+      }
+    } catch {
+      setNmbrsImportResult('Netwerkfout — import mislukt.');
+    } finally {
+      setNmbrsImporting(false);
+    }
+  }
+
+  async function syncToNmbrs() {
+    setNmbrsSyncing(true);
+    setNmbrsSyncResult('');
+    try {
+      const res = await fetch('/api/integrations/nmbrs/sync', { method: 'POST' });
+      const json = await res.json();
+      if (json.ok) {
+        setNmbrsSyncResult(
+          `Gesynchroniseerd: ${json.synced}${json.errors?.length ? `, fouten: ${json.errors.join('; ')}` : ''}`
+        );
+      } else {
+        setNmbrsSyncResult(`Fout: ${json.error}`);
+      }
+    } catch {
+      setNmbrsSyncResult('Netwerkfout — sync mislukt.');
+    } finally {
+      setNmbrsSyncing(false);
+    }
+  }
   return (
     <div className="space-y-6 fade-in">
       <div>
@@ -250,6 +320,99 @@ ADMIN_EMAIL=beheerder@jouwdomein.nl`}
   -H "x-cron-secret: $CRON_SECRET" \\
   ${typeof window !== 'undefined' ? window.location.origin : 'https://jouwdomein.nl'}/api/cron/daily-checks`}
             </pre>
+          </div>
+        )}
+      </div>
+
+      {/* Nmbrs HR Integratie */}
+      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-500/10">
+              <svg className="h-5 w-5 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white">Nmbrs HR Koppeling</h2>
+              <p className="text-xs text-[#9ca3af] mt-0.5">
+                Medewerkers importeren vanuit Nmbrs of naar Nmbrs synchroniseren via SOAP API v3.
+              </p>
+            </div>
+          </div>
+          <StatusBadge ok={hasNmbrs} label={hasNmbrs ? 'Geconfigureerd' : 'Niet geconfigureerd'} />
+        </div>
+
+        {!hasNmbrs ? (
+          <div className="mt-4 rounded-lg bg-[#1e2028] px-3 py-3 text-xs text-[#9ca3af]">
+            <p className="font-medium text-[#f7a247] mb-1">Vereiste omgevingsvariabelen</p>
+            <pre className="font-mono">
+{`NMBRS_USERNAME=uw@email.nl
+NMBRS_TOKEN=uw-api-token-uit-nmbrs
+NMBRS_DOMAIN=bedrijfsnaam
+NMBRS_SANDBOX=false   # true voor sandbox testen`}
+            </pre>
+            <p className="mt-2">
+              De API-token vindt u in Nmbrs onder <span className="text-[#68b0a6]">Instellingen → Gebruiker → API-toegang</span>.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {/* Test connection */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={testNmbrs}
+                disabled={nmbrsStatus === 'testing'}
+                className="rounded-lg border border-[#363848] px-4 py-2 text-xs font-medium text-white hover:bg-[#363848] disabled:opacity-50 transition-colors"
+              >
+                {nmbrsStatus === 'testing' ? 'Testen...' : 'Test verbinding'}
+              </button>
+              {nmbrsMessage && (
+                <span className={`text-xs ${nmbrsStatus === 'ok' ? 'text-[#68b0a6]' : 'text-red-400'}`}>
+                  {nmbrsMessage}
+                </span>
+              )}
+            </div>
+
+            {/* Import */}
+            <div className="rounded-lg bg-[#1e2028] p-3 space-y-2">
+              <p className="text-xs font-medium text-white">Importeer medewerkers uit Nmbrs</p>
+              <p className="text-xs text-[#9ca3af]">
+                Haalt alle Nmbrs-medewerkers op en maakt accounts aan in ZwaluwNest (overslaat bestaande e-mailadressen).
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={importFromNmbrs}
+                  disabled={nmbrsImporting}
+                  className="rounded-lg bg-orange-600 px-4 py-2 text-xs font-semibold text-white hover:bg-orange-500 disabled:opacity-50 transition-colors"
+                >
+                  {nmbrsImporting ? 'Importeren...' : 'Importeer medewerkers'}
+                </button>
+                {nmbrsImportResult && (
+                  <span className="text-xs text-[#9ca3af]">{nmbrsImportResult}</span>
+                )}
+              </div>
+            </div>
+
+            {/* Sync */}
+            <div className="rounded-lg bg-[#1e2028] p-3 space-y-2">
+              <p className="text-xs font-medium text-white">Synchroniseer naar Nmbrs</p>
+              <p className="text-xs text-[#9ca3af]">
+                Stuurt medewerkers die nog geen Nmbrs-ID hebben naar Nmbrs en slaat het ID op.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={syncToNmbrs}
+                  disabled={nmbrsSyncing}
+                  className="rounded-lg bg-[#68b0a6] px-4 py-2 text-xs font-semibold text-white hover:bg-[#7ec4ba] disabled:opacity-50 transition-colors"
+                >
+                  {nmbrsSyncing ? 'Synchroniseren...' : 'Synchroniseer naar Nmbrs'}
+                </button>
+                {nmbrsSyncResult && (
+                  <span className="text-xs text-[#9ca3af]">{nmbrsSyncResult}</span>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </div>

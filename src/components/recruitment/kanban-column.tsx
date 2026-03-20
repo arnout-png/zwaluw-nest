@@ -1,3 +1,6 @@
+'use client';
+
+import { useDroppable } from '@dnd-kit/core';
 import type { Candidate, CandidateStatus } from '@/types';
 import { CandidateCard } from './candidate-card';
 
@@ -9,7 +12,10 @@ interface KanbanColumnProps {
   onMove: (id: string, newStatus: CandidateStatus) => void;
 }
 
-export function KanbanColumn({ title, candidates, color, onMove }: KanbanColumnProps) {
+export function KanbanColumn({ title, status, candidates, color, onMove }: KanbanColumnProps) {
+  const droppableId = Array.isArray(status) ? status[0] : status;
+  const { setNodeRef, isOver } = useDroppable({ id: droppableId });
+
   return (
     <div className="flex flex-col min-w-[220px] max-w-[280px] flex-1">
       {/* Column header */}
@@ -20,11 +26,20 @@ export function KanbanColumn({ title, candidates, color, onMove }: KanbanColumnP
         </span>
       </div>
 
-      {/* Cards */}
-      <div className="flex-1 rounded-b-lg border border-t-0 border-[#363848] bg-[#252732] p-2 space-y-2 min-h-[200px]">
-        {candidates.length === 0 ? (
+      {/* Cards drop zone */}
+      <div
+        ref={setNodeRef}
+        className={`flex-1 rounded-b-lg border border-t-0 border-[#363848] bg-[#252732] p-2 space-y-2 min-h-[200px] transition-colors ${
+          isOver ? 'ring-2 ring-inset ring-[#68b0a6] bg-[#68b0a6]/5' : ''
+        }`}
+      >
+        {candidates.length === 0 && !isOver ? (
           <div className="flex items-center justify-center py-8 text-xs text-[#9ca3af]">
             Geen kandidaten
+          </div>
+        ) : candidates.length === 0 && isOver ? (
+          <div className="flex items-center justify-center py-8 text-xs text-[#68b0a6]">
+            Hier loslaten
           </div>
         ) : (
           candidates.map((c) => (

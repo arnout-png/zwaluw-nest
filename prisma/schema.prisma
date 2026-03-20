@@ -162,6 +162,11 @@ model EmployeeProfile {
   leaveBalanceDays Float @default(25)  // Standard Dutch = 20 minimum + 5 bovenwettelijk
   leaveUsedDays    Float @default(0)
 
+  // Nmbrs HR integration
+  nmbrsEmployeeId String?   // Nmbrs numeric employee ID
+  nmbrsCompanyId  Int?      // Nmbrs company ID
+  nmbrsLastSync   DateTime? // Last successful sync timestamp
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

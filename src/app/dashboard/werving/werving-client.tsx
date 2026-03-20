@@ -1,7 +1,17 @@
 'use client';
 
 import { useState } from 'react';
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
 import { KanbanColumn } from '@/components/recruitment/kanban-column';
+import { CandidateCard } from '@/components/recruitment/candidate-card';
 import type { Candidate, CandidateStatus } from '@/types';
 
 interface WervingClientProps {
@@ -25,8 +35,20 @@ const COLUMNS: { title: string; statuses: CandidateStatus[]; color: string }[] =
   { title: 'Aangenomen', statuses: ['HIRED'], color: 'bg-green-700' },
 ];
 
+// Map each status to its primary column status (for drop target resolution)
+const STATUS_TO_COLUMN: Record<CandidateStatus, CandidateStatus> = {
+  NEW_LEAD: 'NEW_LEAD',
+  PRE_SCREENING: 'PRE_SCREENING',
+  SCREENING_DONE: 'PRE_SCREENING',
+  INTERVIEW: 'INTERVIEW',
+  RESERVE_BANK: 'RESERVE_BANK',
+  HIRED: 'HIRED',
+  REJECTED: 'REJECTED',
+};
+
 export function WervingClient({ initialCandidates }: WervingClientProps) {
   const [candidates, setCandidates] = useState<Candidate[]>(initialCandidates);
+  const [activeCandidate, setActiveCandidate] = useState<Candidate | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<NewCandidateForm>({
@@ -34,12 +56,63 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
   });
   const [error, setError] = useState('');
 
-  async function handleMove(id: string, newStatus: CandidateStatus) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // Require 8px movement before drag starts (prevents accidental drags on clicks)
+      },
+    })
+  );
+
+  function handleDragStart(event: DragStartEvent) {
+    const candidate = candidates.find((c) => c.id === event.active.id);
+    setActiveCandidate(candidate ?? null);
+  }
+
+  async function handleDragEnd(event: DragEndEvent) {
+    setActiveCandidate(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const candidateId = active.id as string;
+    const targetStatus = over.id as CandidateStatus;
+    const candidate = candidates.find((c) => c.id === candidateId);
+    if (!candidate) return;
+
+    // Map column primary status → the correct status to assign
+    // For "PRE_SCREENING" column, keep current status if already in that column,
+    // otherwise move to PRE_SCREENING
+    let newStatus: CandidateStatus = targetStatus;
+    if (targetStatus === STATUS_TO_COLUMN[candidate.status] && candidate.status !== targetStatus) {
+      // Already in this logical column, keep current status
+      return;
+    }
+
+    if (newStatus === candidate.status) return; // No change
+
     // Optimistic update
+    setCandidates((prev) =>
+      prev.map((c) => (c.id === candidateId ? { ...c, status: newStatus } : c))
+    );
+
+    try {
+      const res = await fetch(`/api/candidates/${candidateId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!res.ok) {
+        setCandidates(initialCandidates); // Revert on failure
+      }
+    } catch {
+      setCandidates(initialCandidates);
+    }
+  }
+
+  async function handleMove(id: string, newStatus: CandidateStatus) {
     setCandidates((prev) =>
       prev.map((c) => (c.id === id ? { ...c, status: newStatus } : c))
     );
-
     try {
       const res = await fetch(`/api/candidates/${id}`, {
         method: 'PATCH',
@@ -47,7 +120,6 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
         body: JSON.stringify({ status: newStatus }),
       });
       if (!res.ok) {
-        // Revert on failure
         setCandidates(initialCandidates);
       }
     } catch {
@@ -151,26 +223,39 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
         </div>
       )}
 
-      {/* Kanban board */}
-      <div className="overflow-x-auto pb-4">
-        <div className="flex gap-4 min-w-max">
-          {COLUMNS.map((col) => {
-            const colCandidates = candidates.filter((c) =>
-              (col.statuses as string[]).includes(c.status)
-            );
-            return (
-              <KanbanColumn
-                key={col.title}
-                title={col.title}
-                status={col.statuses[0]}
-                candidates={colCandidates}
-                color={col.color}
-                onMove={handleMove}
-              />
-            );
-          })}
+      {/* Kanban board with DnD */}
+      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div className="overflow-x-auto pb-4">
+          <div className="flex gap-4 min-w-max">
+            {COLUMNS.map((col) => {
+              const colCandidates = candidates.filter((c) =>
+                (col.statuses as string[]).includes(c.status)
+              );
+              return (
+                <KanbanColumn
+                  key={col.title}
+                  title={col.title}
+                  status={col.statuses[0]}
+                  candidates={colCandidates}
+                  color={col.color}
+                  onMove={handleMove}
+                />
+              );
+            })}
+          </div>
         </div>
-      </div>
+
+        {/* Floating drag overlay */}
+        <DragOverlay>
+          {activeCandidate ? (
+            <CandidateCard
+              candidate={activeCandidate}
+              onMove={handleMove}
+              overlay
+            />
+          ) : null}
+        </DragOverlay>
+      </DndContext>
     </div>
   );
 }

@@ -93,6 +93,9 @@ export interface EmployeeProfile {
   googleRefreshToken?: string;
   googleCalendarId?: string;
   googleSyncEnabled?: boolean;
+  nmbrsEmployeeId?: string;
+  nmbrsCompanyId?: number;
+  nmbrsLastSync?: string;
   createdAt: string;
   updatedAt: string;
   user?: User;

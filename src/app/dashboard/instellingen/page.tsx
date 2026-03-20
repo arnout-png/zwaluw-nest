@@ -32,6 +32,7 @@ export default async function InstellingenPage({
       hasFacebook={!!process.env.FACEBOOK_APP_SECRET}
       hasGoogleSheets={!!process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS && !!process.env.GOOGLE_SHEETS_ID}
       hasCronSecret={!!process.env.CRON_SECRET}
+      hasNmbrs={!!(process.env.NMBRS_USERNAME && process.env.NMBRS_TOKEN && process.env.NMBRS_DOMAIN)}
     />
   );
 }

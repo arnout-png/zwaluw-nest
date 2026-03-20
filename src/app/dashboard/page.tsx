@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { getDashboardStats, getContractsExpiringSoon, getPendingLeaveRequests } from '@/lib/data';
@@ -134,12 +135,27 @@ export default async function DashboardPage() {
             <div className="space-y-2">
               {expiringContracts.slice(0, 6).map((contract) => {
                 const days = daysUntil(contract.endDate!);
-                return (
-                  <div key={contract.id} className="flex items-center justify-between rounded-lg bg-[#1e2028] px-3 py-2">
-                    <div className="text-sm text-[#e8e9ed]">Contract #{contract.id.slice(-6)}</div>
+                const userId = contract.employeeProfile?.userId;
+                const employeeName = contract.employeeProfile?.user?.name ?? `Contract #${contract.id.slice(-6)}`;
+                const inner = (
+                  <>
+                    <div className="text-sm text-[#e8e9ed]">{employeeName}</div>
                     <div className={`text-xs font-medium ${days <= 30 ? 'text-red-400' : 'text-[#f7a247]'}`}>
                       {days <= 0 ? 'Verlopen' : `${days} dagen`}
                     </div>
+                  </>
+                );
+                return userId ? (
+                  <Link
+                    key={contract.id}
+                    href={`/dashboard/personeel/${userId}`}
+                    className="flex items-center justify-between rounded-lg bg-[#1e2028] px-3 py-2 hover:bg-[#2a2d3a] transition-colors"
+                  >
+                    {inner}
+                  </Link>
+                ) : (
+                  <div key={contract.id} className="flex items-center justify-between rounded-lg bg-[#1e2028] px-3 py-2">
+                    {inner}
                   </div>
                 );
               })}

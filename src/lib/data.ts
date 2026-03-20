@@ -232,7 +232,14 @@ export async function getAppointments(
 
 // ─── Contracts ────────────────────────────────────────────────────────────────
 
-export async function getContractsExpiringSoon(): Promise<Contract[]> {
+export type ContractWithEmployee = Contract & {
+  employeeProfile?: {
+    userId: string;
+    user?: { id: string; name: string };
+  };
+};
+
+export async function getContractsExpiringSoon(): Promise<ContractWithEmployee[]> {
   const today = new Date();
   const in60Days = new Date(today.getTime() + 60 * 24 * 60 * 60 * 1000);
   const todayStr = today.toISOString().split('T')[0];
@@ -244,7 +251,11 @@ export async function getContractsExpiringSoon(): Promise<Contract[]> {
       `
       id, employeeProfileId, contractType, startDate, endDate,
       probationEndDate, contractSequence, hoursPerWeek, salaryGross,
-      status, createdAt
+      status, createdAt,
+      employeeProfile:EmployeeProfile!Contract_employeeProfileId_fkey (
+        userId,
+        user:User!EmployeeProfile_userId_fkey (id, name)
+      )
     `
     )
     .eq('status', 'ACTIVE')
@@ -257,7 +268,7 @@ export async function getContractsExpiringSoon(): Promise<Contract[]> {
     console.error('getContractsExpiringSoon error:', error.message, error.code);
     return [];
   }
-  return (data as Contract[]) ?? [];
+  return (data as unknown as ContractWithEmployee[]) ?? [];
 }
 
 // ─── Dashboard stats ──────────────────────────────────────────────────────────
