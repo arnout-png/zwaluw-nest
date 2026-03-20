@@ -54,7 +54,7 @@ export async function POST(
       .from('CandidateNoteMention')
       .insert(mentionRows)
       .select('id, noteId, userId, user:User!CandidateNoteMention_userId_fkey (id, name)');
-    mentions = (mentionData ?? []) as typeof mentions;
+    mentions = (mentionData ?? []) as unknown as typeof mentions;
 
     // 3. Fetch candidate name for notifications
     const { data: candidateData } = await supabaseAdmin
