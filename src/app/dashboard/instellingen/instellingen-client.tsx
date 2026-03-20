@@ -1,0 +1,266 @@
+'use client';
+
+interface Props {
+  googleConnected: boolean;
+  googleStatus?: string;
+  hasGoogleCredentials: boolean;
+  hasResend: boolean;
+  hasFacebook: boolean;
+  hasGoogleSheets: boolean;
+  hasCronSecret: boolean;
+}
+
+function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+        ok ? 'bg-[#68b0a6]/10 text-[#68b0a6]' : 'bg-[#9ca3af]/10 text-[#9ca3af]'
+      }`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-[#68b0a6]' : 'bg-[#9ca3af]'}`} />
+      {label}
+    </span>
+  );
+}
+
+export function InstellingenClient({
+  googleConnected,
+  googleStatus,
+  hasGoogleCredentials,
+  hasResend,
+  hasFacebook,
+  hasGoogleSheets,
+  hasCronSecret,
+}: Props) {
+  return (
+    <div className="space-y-6 fade-in">
+      <div>
+        <h1 className="text-2xl font-semibold text-white">Instellingen & Integraties</h1>
+        <p className="mt-1 text-sm text-[#9ca3af]">
+          Beheer externe koppelingen en automatiseringen voor ZwaluwNest.
+        </p>
+      </div>
+
+      {/* Google Calendar */}
+      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
+              <svg className="h-5 w-5 text-blue-400" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19.5 22h-15A2.502 2.502 0 012 19.5v-15C2 3.122 3.122 2 4.5 2H8V0h2v2h4V0h2v2h3.5C21.878 2 23 3.122 23 4.5v15c0 1.378-1.122 2.5-2.5 2.5zM4.5 4C4.224 4 4 4.224 4 4.5v15c0 .276.224.5.5.5h15c.276 0 .5-.224.5-.5v-15c0-.276-.224-.5-.5-.5H19v2h-2V4H7v2H5V4H4.5z"/>
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white">Google Agenda</h2>
+              <p className="text-xs text-[#9ca3af] mt-0.5">
+                Synchroniseer afspraken en verlof met je Google Agenda.
+              </p>
+            </div>
+          </div>
+          <StatusBadge ok={googleConnected} label={googleConnected ? 'Verbonden' : 'Niet verbonden'} />
+        </div>
+
+        {googleStatus === 'connected' && (
+          <div className="mt-3 rounded-lg bg-[#68b0a6]/10 border border-[#68b0a6]/20 px-3 py-2 text-xs text-[#68b0a6]">
+            ✓ Google Agenda succesvol gekoppeld!
+          </div>
+        )}
+        {googleStatus === 'error' && (
+          <div className="mt-3 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">
+            Koppelen mislukt. Controleer de Google OAuth instellingen in je .env bestand.
+          </div>
+        )}
+
+        <div className="mt-4">
+          {!hasGoogleCredentials ? (
+            <div className="rounded-lg bg-[#1e2028] px-3 py-3 text-xs text-[#9ca3af]">
+              <p className="font-medium text-[#f7a247] mb-1">Configuratie vereist</p>
+              <p>Voeg de volgende omgevingsvariabelen toe aan je <code className="text-[#68b0a6]">.env</code>:</p>
+              <pre className="mt-2 text-[#9ca3af] font-mono">
+{`GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...`}
+              </pre>
+            </div>
+          ) : googleConnected ? (
+            <div className="flex gap-2">
+              <a
+                href="/api/integrations/google/connect"
+                className="rounded-lg border border-[#363848] px-4 py-2 text-xs text-[#9ca3af] hover:bg-[#363848] transition"
+              >
+                Opnieuw verbinden
+              </a>
+            </div>
+          ) : (
+            <a
+              href="/api/integrations/google/connect"
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-500 transition"
+            >
+              Verbind Google Agenda →
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* Facebook Leads Webhook */}
+      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#1877F2]/10">
+              <svg className="h-5 w-5 text-[#1877F2]" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white">Facebook Lead Ads Webhook</h2>
+              <p className="text-xs text-[#9ca3af] mt-0.5">
+                Automatisch nieuwe kandidaten aanmaken vanuit Facebook Lead Ads.
+              </p>
+            </div>
+          </div>
+          <StatusBadge ok={hasFacebook} label={hasFacebook ? 'Geconfigureerd' : 'Niet geconfigureerd'} />
+        </div>
+
+        <div className="mt-4 rounded-lg bg-[#1e2028] px-3 py-3 text-xs text-[#9ca3af] space-y-2">
+          <p className="font-medium text-white">Webhook URL (kopieer naar Facebook Business Manager):</p>
+          <div className="flex items-center gap-2">
+            <code className="text-[#68b0a6] bg-[#14151b] px-2 py-1 rounded flex-1 overflow-x-auto">
+              {typeof window !== 'undefined' ? window.location.origin : 'https://jouwdomein.nl'}/api/webhooks/facebook-leads
+            </code>
+          </div>
+          {!hasFacebook && (
+            <>
+              <p className="font-medium text-[#f7a247] mt-2">Vereiste omgevingsvariabelen:</p>
+              <pre className="font-mono text-[#9ca3af]">
+{`FACEBOOK_WEBHOOK_VERIFY_TOKEN=jouw_verify_token
+FACEBOOK_APP_SECRET=jouw_app_secret
+FACEBOOK_PAGE_ACCESS_TOKEN=jouw_page_token`}
+              </pre>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Google Sheets */}
+      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-500/10">
+              <svg className="h-5 w-5 text-green-400" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19.86 2H4.14A2.14 2.14 0 002 4.14v15.72A2.14 2.14 0 004.14 22h15.72A2.14 2.14 0 0022 19.86V4.14A2.14 2.14 0 0019.86 2zM9 18H6v-2h3v2zm0-4H6v-2h3v2zm0-4H6V8h3v2zm5 8h-3v-2h3v2zm0-4h-3v-2h3v2zm0-4h-3V8h3v2zm5 8h-3v-2h3v2zm0-4h-3v-2h3v2zm0-4h-3V8h3v2z"/>
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white">Google Sheets Koppeling</h2>
+              <p className="text-xs text-[#9ca3af] mt-0.5">
+                Leads loggen naar Google Sheets en historische leads importeren.
+              </p>
+            </div>
+          </div>
+          <StatusBadge ok={hasGoogleSheets} label={hasGoogleSheets ? 'Geconfigureerd' : 'Niet geconfigureerd'} />
+        </div>
+
+        {!hasGoogleSheets && (
+          <div className="mt-4 rounded-lg bg-[#1e2028] px-3 py-3 text-xs text-[#9ca3af]">
+            <p className="font-medium text-[#f7a247] mb-1">Configuratie vereist</p>
+            <pre className="font-mono">
+{`GOOGLE_SHEETS_ID=spreadsheet_id_uit_url
+GOOGLE_SERVICE_ACCOUNT_CREDENTIALS=base64_json`}
+            </pre>
+            <p className="mt-2">
+              Maak een Service Account aan in Google Cloud Console, deel het spreadsheet met het service account e-mailadres, en codeer de JSON-sleutel als base64.
+            </p>
+          </div>
+        )}
+
+        {hasGoogleSheets && (
+          <div className="mt-4">
+            <a
+              href="/dashboard/werving/importeer"
+              className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-xs font-semibold text-white hover:bg-green-500 transition"
+            >
+              Leads importeren →
+            </a>
+          </div>
+        )}
+      </div>
+
+      {/* Email (Resend) */}
+      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10">
+              <svg className="h-5 w-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white">E-mail Notificaties (Resend)</h2>
+              <p className="text-xs text-[#9ca3af] mt-0.5">
+                Automatische e-mails voor verlof, contracten en poortwachter.
+              </p>
+            </div>
+          </div>
+          <StatusBadge ok={hasResend} label={hasResend ? 'Geconfigureerd' : 'Niet geconfigureerd'} />
+        </div>
+
+        {!hasResend && (
+          <div className="mt-4 rounded-lg bg-[#1e2028] px-3 py-3 text-xs text-[#9ca3af]">
+            <p className="font-medium text-[#f7a247] mb-1">Configuratie vereist</p>
+            <pre className="font-mono">
+{`RESEND_API_KEY=re_xxxxxxxxxxxx
+EMAIL_FROM=ZwaluwNest <noreply@jouwdomein.nl>
+ADMIN_EMAIL=beheerder@jouwdomein.nl`}
+            </pre>
+            <p className="mt-2">Meld je aan op <span className="text-[#68b0a6]">resend.com</span>, verifieer je domein en maak een API-sleutel aan.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Cron / Automatische notificaties */}
+      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#f7a247]/10">
+              <svg className="h-5 w-5 text-[#f7a247]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white">Dagelijkse Automatische Controles</h2>
+              <p className="text-xs text-[#9ca3af] mt-0.5">
+                Cron job loopt elke dag om 07:00 — controleert contracten, verzuim en AVG.
+              </p>
+            </div>
+          </div>
+          <StatusBadge ok={hasCronSecret} label={hasCronSecret ? 'Geconfigureerd' : 'Niet geconfigureerd'} />
+        </div>
+
+        {!hasCronSecret && (
+          <div className="mt-4 rounded-lg bg-[#1e2028] px-3 py-3 text-xs text-[#9ca3af]">
+            <p className="font-medium text-[#f7a247] mb-1">Configuratie vereist</p>
+            <pre className="font-mono">CRON_SECRET=willekeurige_lange_geheime_string</pre>
+          </div>
+        )}
+
+        {hasCronSecret && (
+          <div className="mt-4 rounded-lg bg-[#1e2028] px-3 py-3 text-xs text-[#9ca3af]">
+            <p>Handmatig uitvoeren (curl):</p>
+            <pre className="mt-1 text-[#68b0a6] font-mono overflow-x-auto">
+{`curl -X POST \\
+  -H "x-cron-secret: $CRON_SECRET" \\
+  ${typeof window !== 'undefined' ? window.location.origin : 'https://jouwdomein.nl'}/api/cron/daily-checks`}
+            </pre>
+          </div>
+        )}
+      </div>
+
+      {/* Info footer */}
+      <div className="rounded-xl border border-[#363848] bg-[#1e2028] p-4">
+        <p className="text-xs text-[#9ca3af]">
+          <span className="text-white font-medium">Tip:</span> Voeg alle omgevingsvariabelen toe via Vercel Dashboard → Settings → Environment Variables.
+          Na het toevoegen, herstart de development server of maak een nieuwe deployment aan.
+        </p>
+      </div>
+    </div>
+  );
+}

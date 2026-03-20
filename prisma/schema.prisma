@@ -1,0 +1,451 @@
+// Zwaluw HR & Operations Portal — Database Schema
+// Covers: RBAC, Recruitment (Module 1), HR/Dossier/Verzuim (Module 2),
+//         Scheduling, Customers, Audit Trail, Notifications
+// Compliance: AVG/GDPR, Ketenbepaling, Wet verbetering poortwachter, Proeftijd
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// RBAC — Roles & Permissions
+// ─────────────────────────────────────────────
+
+enum Role {
+  ADMIN       // Directie — full access
+  PLANNER     // Scheduling — sees master agenda + verzuim, no HR dossiers
+  ADVISEUR    // Sales — own agenda, conversion metrics, leave requests
+  MONTEUR     // Mechanic — mobile view, assigned jobs/vehicle/tools
+  CALLCENTER  // Call center staff
+  BACKOFFICE  // Back office operations
+  WAREHOUSE   // Warehouse staff
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  employeeProfile  EmployeeProfile?
+  auditLogs        AuditLog[]        @relation("AuditAuthor")
+  notifications    Notification[]
+  dossierAuthored  DossierEntry[]    @relation("DossierAuthor")
+
+  @@index([role])
+  @@index([email])
+}
+
+// ─────────────────────────────────────────────
+// MODULE 1: Recruitment & Reserve Bank
+// ─────────────────────────────────────────────
+
+enum CandidateStatus {
+  NEW_LEAD        // Ingested from Facebook Ads webhook
+  PRE_SCREENING   // Form sent, awaiting response
+  SCREENING_DONE  // Form completed, awaiting review
+  INTERVIEW       // Approved for interview
+  RESERVE_BANK    // Vetted, waiting for opening
+  HIRED           // Converted to employee
+  REJECTED        // Not a fit
+  WITHDRAWN       // Candidate withdrew or GDPR deletion
+}
+
+model Candidate {
+  id        String          @id @default(cuid())
+  status    CandidateStatus @default(NEW_LEAD)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  // Contact info
+  name     String
+  email    String
+  phone    String?
+
+  // Pre-screening fields (filled via public form)
+  age               Int?
+  location          String?
+  livingSituation   String?    // e.g., "Samenwonend", "Alleenstaand"
+  partnerEmployment String?    // Partner's work status — gauges financial dependency
+  currentJob        String?
+  reasonForLeaving  String?
+  salaryExpectation String?
+
+  // GDPR / AVG compliance
+  consentGiven      Boolean   @default(false)
+  consentDate       DateTime?
+  consentExpiresAt  DateTime?  // 4 weeks default, 1 year with explicit consent
+  dataDeletedAt     DateTime?  // When candidate data was anonymized
+
+  // Lead source tracking
+  leadSource        String?    // e.g., "Facebook Ads", "Referral", "Indeed"
+  leadCampaignId    String?    // Facebook campaign ID for attribution
+
+  // Relations
+  interviewScores   InterviewScore[]
+  employeeProfile   EmployeeProfile?  // 1:1 link when hired
+  notes             CandidateNote[]
+
+  @@index([status])
+  @@index([consentExpiresAt])
+}
+
+model CandidateNote {
+  id          String    @id @default(cuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  content     String
+  authorId    String    // User who wrote the note
+  createdAt   DateTime  @default(now())
+
+  @@index([candidateId])
+}
+
+model InterviewScore {
+  id          String    @id @default(cuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  // Standardized scorecard
+  technicalSkills    Int?   // 1-5
+  communication      Int?   // 1-5
+  cultureFit         Int?   // 1-5
+  reliability        Int?   // 1-5
+  motivation         Int?   // 1-5
+  overallImpression  Int?   // 1-5
+  notes              String?
+  recommendation     String?  // "HIRE", "RESERVE", "REJECT"
+
+  interviewerId String   // Admin/manager who conducted interview
+  interviewDate DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([candidateId])
+}
+
+// ─────────────────────────────────────────────
+// MODULE 2: HR — Employee Profiles & Contracts
+// ─────────────────────────────────────────────
+
+model EmployeeProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Link to recruitment pipeline (if hired via recruitment)
+  candidateId String?    @unique
+  candidate   Candidate? @relation(fields: [candidateId], references: [id])
+
+  // Personal details
+  dateOfBirth    DateTime?
+  address        String?
+  city           String?
+  postalCode     String?
+  phonePersonal  String?
+  bsn            String?    // Burgerservicenummer — encrypted at rest
+  emergencyName  String?
+  emergencyPhone String?
+
+  // Employment
+  startDate  DateTime?
+  department String?
+
+  // Leave balance (annual tracking)
+  leaveBalanceDays Float @default(25)  // Standard Dutch = 20 minimum + 5 bovenwettelijk
+  leaveUsedDays    Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  contracts      Contract[]
+  leaveRequests  LeaveRequest[]
+  dossierEntries DossierEntry[]
+  appointments   Appointment[]    @relation("EmployeeAppointments")
+  sickTrackers   SickTracker[]
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────
+// Contracts — Ketenbepaling compliance
+// ─────────────────────────────────────────────
+
+enum ContractStatus {
+  ACTIVE
+  EXPIRED
+  PENDING
+  TERMINATED
+}
+
+model Contract {
+  id                String          @id @default(cuid())
+  employeeProfileId String
+  employeeProfile   EmployeeProfile @relation(fields: [employeeProfileId], references: [id])
+
+  startDate        DateTime
+  endDate          DateTime?         // Null = permanent
+  probationEndDate DateTime?         // Proeftijd tracking
+
+  contractType     String            // "BEPAALD" (fixed) or "ONBEPAALD" (permanent)
+  contractSequence Int      @default(1)  // Ketenbepaling: max 3 in 36 months
+  hoursPerWeek     Float?
+  salaryGross      Float?            // Monthly gross — Admin-only visibility
+
+  status    ContractStatus @default(ACTIVE)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([employeeProfileId])
+  @@index([endDate])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────
+// Verzuim — Leave Requests & Sick Tracking
+// ─────────────────────────────────────────────
+
+enum LeaveType {
+  VACATION     // Vakantie
+  SICK         // Ziek
+  PERSONAL     // Persoonlijk verlof
+  UNPAID       // Onbetaald verlof
+  SPECIAL      // Bijzonder verlof (wedding, funeral, etc.)
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model LeaveRequest {
+  id                String          @id @default(cuid())
+  employeeProfileId String
+  employeeProfile   EmployeeProfile @relation(fields: [employeeProfileId], references: [id])
+
+  type      LeaveType
+  status    LeaveStatus @default(PENDING)
+  startDate DateTime
+  endDate   DateTime?     // Null for open-ended sick leave
+  totalDays Float?        // Calculated business days
+  reason    String?       // Optional for holiday, required for special leave
+  notes     String?       // Manager notes on approval/rejection
+
+  approvedById String?    // User who approved/rejected
+  respondedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([employeeProfileId])
+  @@index([startDate, endDate])
+  @@index([status])
+  @@index([type])
+}
+
+// Wet verbetering poortwachter — sick leave compliance tracker
+model SickTracker {
+  id                String          @id @default(cuid())
+  employeeProfileId String
+  employeeProfile   EmployeeProfile @relation(fields: [employeeProfileId], references: [id])
+
+  sicknessStartDate   DateTime
+  sicknessEndDate     DateTime?   // Null = still sick
+
+  // Poortwachter milestones
+  week6ProblemAnalysis   Boolean  @default(false)  // Probleemanalyse required
+  week6CompletedAt       DateTime?
+  week8ActionPlan        Boolean  @default(false)  // Plan van Aanpak required
+  week8CompletedAt       DateTime?
+  week42UwvNotification  Boolean  @default(false)  // UWV melding at 42 weeks
+  week42CompletedAt      DateTime?
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([employeeProfileId])
+  @@index([sicknessStartDate])
+}
+
+// ─────────────────────────────────────────────
+// Digital Dossier — Admin-only incident logging
+// ─────────────────────────────────────────────
+
+enum DossierType {
+  NOTE
+  WARNING
+  COMPLIMENT
+  INCIDENT
+  PERFORMANCE
+  OTHER
+}
+
+model DossierEntry {
+  id                String          @id @default(cuid())
+  employeeProfileId String
+  employeeProfile   EmployeeProfile @relation(fields: [employeeProfileId], references: [id])
+
+  date        DateTime
+  type        DossierType
+  title       String
+  description String
+  attachments String[]     // File paths/URLs for supporting documents
+
+  loggedById  String
+  loggedBy    User         @relation("DossierAuthor", fields: [loggedById], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([employeeProfileId])
+  @@index([date])
+  @@index([type])
+}
+
+// ─────────────────────────────────────────────
+// Scheduling & Appointments
+// ─────────────────────────────────────────────
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Appointment {
+  id                String          @id @default(cuid())
+  employeeProfileId String
+  employeeProfile   EmployeeProfile @relation("EmployeeAppointments", fields: [employeeProfileId], references: [id])
+
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id])
+
+  title       String
+  description String?
+  date        DateTime
+  startTime   DateTime
+  endTime     DateTime
+  location    String?
+  status      AppointmentStatus @default(SCHEDULED)
+
+  // Monteur-specific
+  vehicleId   String?   // Reference to asset (from Supabase for Monteurs)
+  toolsList   String[]  // Tools assigned for this job
+
+  // Adviseur-specific
+  saleValue   Float?    // If SOLD, the value of the sale
+
+  createdById String    // Planner or Admin who created
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([employeeProfileId])
+  @@index([date])
+  @@index([status])
+  @@index([customerId])
+}
+
+// ─────────────────────────────────────────────
+// Customers — Needed for appointments & reviews
+// ─────────────────────────────────────────────
+
+model Customer {
+  id         String   @id @default(cuid())
+  name       String
+  email      String?
+  phone      String?
+  address    String?
+  city       String?
+  postalCode String?
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  appointments   Appointment[]
+  reviewRequests ReviewRequest[]
+
+  @@index([email])
+}
+
+model ReviewRequest {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  requestedById String    // Adviseur who triggered the review request
+  sentAt        DateTime?
+  completedAt   DateTime?
+  rating        Int?      // 1-5 stars
+  reviewText    String?
+  platform      String?   // "Google", "Trustpilot", etc.
+
+  createdAt DateTime @default(now())
+
+  @@index([customerId])
+}
+
+// ─────────────────────────────────────────────
+// Audit Trail — GDPR compliance
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation("AuditAuthor", fields: [userId], references: [id])
+
+  action    String    // "CREATE", "UPDATE", "DELETE", "LOGIN", "EXPORT"
+  entity    String    // "Candidate", "Contract", "LeaveRequest", etc.
+  entityId  String?   // ID of the affected record
+  details   String?   // JSON string with before/after values
+  ipAddress String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// Notifications
+// ─────────────────────────────────────────────
+
+enum NotificationType {
+  LEAVE_REQUEST
+  LEAVE_APPROVED
+  LEAVE_REJECTED
+  CONTRACT_EXPIRING
+  SICK_REPORT
+  NEW_CANDIDATE
+  SYSTEM
+}
+
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  type    NotificationType
+  title   String
+  message String
+  linkUrl String?   // Deep link into the app
+  isRead  Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
