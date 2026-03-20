@@ -28,6 +28,26 @@ const NEXT_LABEL: Partial<Record<CandidateStatus, string>> = {
   RESERVE_BANK: 'Aangenomen →',
 };
 
+const LEAD_SOURCE_LABEL: Record<string, string> = {
+  FACEBOOK: 'Facebook',
+  LINKEDIN: 'LinkedIn',
+  INDEED: 'Indeed',
+  REFERRAL: 'Referral',
+  MANUAL: 'Handmatig',
+  GOOGLE: 'Google',
+  OTHER: 'Overig',
+};
+
+const LEAD_SOURCE_COLOR: Record<string, string> = {
+  FACEBOOK: 'bg-blue-500/10 text-blue-400',
+  LINKEDIN: 'bg-sky-500/10 text-sky-400',
+  INDEED: 'bg-purple-500/10 text-purple-400',
+  REFERRAL: 'bg-green-500/10 text-green-400',
+  MANUAL: 'bg-[#363848] text-[#9ca3af]',
+  GOOGLE: 'bg-red-500/10 text-red-400',
+  OTHER: 'bg-[#363848] text-[#9ca3af]',
+};
+
 function consentDaysLeft(expiresAt?: string | null) {
   if (!expiresAt) return null;
   const expires = new Date(expiresAt);
@@ -103,12 +123,29 @@ export function CandidateCard({ candidate, onMove, overlay = false }: CandidateC
       </div>
 
       {/* Meta */}
-      <div className="flex items-center gap-3 text-xs text-[#9ca3af]">
+      <div className="flex items-center gap-2 flex-wrap text-xs text-[#9ca3af]">
         {candidate.salaryExpectation && (
           <span>€{candidate.salaryExpectation}</span>
         )}
         <span>{new Date(candidate.createdAt).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}</span>
+        {candidate.leadSource && (
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+            LEAD_SOURCE_COLOR[candidate.leadSource] ?? 'bg-[#363848] text-[#9ca3af]'
+          }`}>
+            {LEAD_SOURCE_LABEL[candidate.leadSource] ?? candidate.leadSource}
+          </span>
+        )}
       </div>
+
+      {/* Assignee chip */}
+      {candidate.assignedTo && (
+        <div className="flex items-center gap-1.5 text-xs text-[#9ca3af]">
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#363848] text-[9px] font-bold text-[#68b0a6] shrink-0">
+            {candidate.assignedTo.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}
+          </span>
+          <span className="truncate">{candidate.assignedTo.name}</span>
+        </div>
+      )}
 
       {/* Move button — hidden in overlay */}
       {!overlay && nextStatus && nextLabel && (

@@ -76,7 +76,8 @@ export async function PATCH(
   if ('phone' in body) updates.phone = body.phone;
   if ('location' in body) updates.location = body.location;
   if ('salaryExpectation' in body) updates.salaryExpectation = body.salaryExpectation ? String(body.salaryExpectation) : null;
-  if ('notes' in body) updates.notes = body.notes; // Not in schema but harmless
+  if ('leadSource' in body) updates.leadSource = body.leadSource ?? null;
+  if ('assignedToId' in body) updates.assignedToId = body.assignedToId ?? null;
 
   // Handle name: accept either combined or split
   if ('firstName' in body || 'lastName' in body) {

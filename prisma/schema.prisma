@@ -40,6 +40,15 @@ model User {
   notifications    Notification[]
   dossierAuthored  DossierEntry[]    @relation("DossierAuthor")
 
+  // Recruitment relations
+  assignedCandidates      Candidate[]               @relation("CandidateAssignee")
+  noteAuthored            CandidateNote[]           @relation("NoteAuthor")
+  noteMentions            CandidateNoteMention[]
+  screeningAnswersGiven   ScreeningAnswer[]         @relation("AnswerAuthor")
+  screeningScriptsCreated ScreeningScript[]         @relation("ScriptCreator")
+  checklistsCreated       InterviewChecklist[]      @relation("ChecklistCreator")
+  checklistResults        InterviewChecklistResult[] @relation("ResultChecker")
+
   @@index([role])
   @@index([email])
 }
@@ -86,16 +95,23 @@ model Candidate {
   dataDeletedAt     DateTime?  // When candidate data was anonymized
 
   // Lead source tracking
-  leadSource        String?    // e.g., "Facebook Ads", "Referral", "Indeed"
-  leadCampaignId    String?    // Facebook campaign ID for attribution
+  leadSource        String?    // e.g., "FACEBOOK", "LINKEDIN", "INDEED", "MANUAL"
+  leadCampaignId    String?    // Facebook/LinkedIn campaign ID for attribution
+
+  // Assignment
+  assignedToId      String?
+  assignedTo        User?      @relation("CandidateAssignee", fields: [assignedToId], references: [id])
 
   // Relations
   interviewScores   InterviewScore[]
-  employeeProfile   EmployeeProfile?  // 1:1 link when hired
+  employeeProfile   EmployeeProfile?          // 1:1 link when hired
   notes             CandidateNote[]
+  screeningAnswers  ScreeningAnswer[]
+  checklistResults  InterviewChecklistResult[]
 
   @@index([status])
   @@index([consentExpiresAt])
+  @@index([assignedToId])
 }
 
 model CandidateNote {
@@ -104,9 +120,23 @@ model CandidateNote {
   candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   content     String
   authorId    String    // User who wrote the note
+  author      User      @relation("NoteAuthor", fields: [authorId], references: [id])
   createdAt   DateTime  @default(now())
 
+  mentions    CandidateNoteMention[]
+
   @@index([candidateId])
+}
+
+model CandidateNoteMention {
+  id     String        @id @default(cuid())
+  noteId String
+  note   CandidateNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  userId String
+  user   User          @relation(fields: [userId], references: [id])
+
+  @@unique([noteId, userId])
+  @@index([userId])
 }
 
 model InterviewScore {
@@ -435,6 +465,7 @@ enum NotificationType {
   CONTRACT_EXPIRING
   SICK_REPORT
   NEW_CANDIDATE
+  MENTION
   SYSTEM
 }
 
@@ -453,4 +484,96 @@ model Notification {
 
   @@index([userId, isRead])
   @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+// Pre-screening Scripts — Admin-managed Q&A templates
+// ─────────────────────────────────────────────
+
+model ScreeningScript {
+  id          String              @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean             @default(true)
+  questions   ScreeningQuestion[]
+  createdById String
+  createdBy   User                @relation("ScriptCreator", fields: [createdById], references: [id])
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([isActive])
+}
+
+model ScreeningQuestion {
+  id          String            @id @default(cuid())
+  scriptId    String
+  script      ScreeningScript   @relation(fields: [scriptId], references: [id], onDelete: Cascade)
+  question    String
+  placeholder String?
+  required    Boolean           @default(false)
+  order       Int
+  answers     ScreeningAnswer[]
+
+  @@index([scriptId])
+}
+
+model ScreeningAnswer {
+  id           String            @id @default(cuid())
+  questionId   String
+  question     ScreeningQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  candidateId  String
+  candidate    Candidate         @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  answer       String
+  answeredById String
+  answeredBy   User              @relation("AnswerAuthor", fields: [answeredById], references: [id])
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@unique([questionId, candidateId])
+  @@index([candidateId])
+}
+
+// ─────────────────────────────────────────────
+// Interview Checklists — Admin-managed interview templates
+// ─────────────────────────────────────────────
+
+model InterviewChecklist {
+  id          String                   @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean                  @default(true)
+  items       InterviewChecklistItem[]
+  createdById String
+  createdBy   User                     @relation("ChecklistCreator", fields: [createdById], references: [id])
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+
+  @@index([isActive])
+}
+
+model InterviewChecklistItem {
+  id          String                     @id @default(cuid())
+  checklistId String
+  checklist   InterviewChecklist         @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  label       String
+  description String?
+  order       Int
+  results     InterviewChecklistResult[]
+
+  @@index([checklistId])
+}
+
+model InterviewChecklistResult {
+  id          String                 @id @default(cuid())
+  itemId      String
+  item        InterviewChecklistItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  candidateId String
+  candidate   Candidate              @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  checked     Boolean                @default(false)
+  checkedById String?
+  checkedBy   User?                  @relation("ResultChecker", fields: [checkedById], references: [id])
+  checkedAt   DateTime?
+
+  @@unique([itemId, candidateId])
+  @@index([candidateId])
 }

@@ -11,6 +11,8 @@ interface Props {
   hasGoogleSheets: boolean;
   hasCronSecret: boolean;
   hasNmbrs: boolean;
+  hasLinkedIn: boolean;
+  linkedinStatus?: string;
 }
 
 function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
@@ -35,13 +37,37 @@ export function InstellingenClient({
   hasGoogleSheets,
   hasCronSecret,
   hasNmbrs,
+  hasLinkedIn,
+  linkedinStatus,
 }: Props) {
   const [nmbrsStatus, setNmbrsStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
+  const [linkedinImporting, setLinkedinImporting] = useState(false);
+  const [linkedinImportResult, setLinkedinImportResult] = useState('');
   const [nmbrsMessage, setNmbrsMessage] = useState('');
   const [nmbrsImporting, setNmbrsImporting] = useState(false);
   const [nmbrsImportResult, setNmbrsImportResult] = useState<string>('');
   const [nmbrsSyncing, setNmbrsSyncing] = useState(false);
   const [nmbrsSyncResult, setNmbrsSyncResult] = useState<string>('');
+
+  async function importFromLinkedIn() {
+    setLinkedinImporting(true);
+    setLinkedinImportResult('');
+    try {
+      const res = await fetch('/api/integrations/linkedin/import', { method: 'POST' });
+      const json = await res.json();
+      if (json.ok) {
+        setLinkedinImportResult(
+          `Geïmporteerd: ${json.created}, overgeslagen: ${json.skipped}${json.errors?.length ? `, fouten: ${json.errors.join('; ')}` : ''}`
+        );
+      } else {
+        setLinkedinImportResult(`Fout: ${json.error}`);
+      }
+    } catch {
+      setLinkedinImportResult('Netwerkfout — import mislukt.');
+    } finally {
+      setLinkedinImporting(false);
+    }
+  }
 
   async function testNmbrs() {
     setNmbrsStatus('testing');
@@ -415,6 +441,100 @@ NMBRS_SANDBOX=false   # true voor sandbox testen`}
             </div>
           </div>
         )}
+      </div>
+
+      {/* LinkedIn Lead Gen */}
+      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#0A66C2]/10">
+              <svg className="h-5 w-5 text-[#0A66C2]" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white">LinkedIn Lead Gen Forms</h2>
+              <p className="text-xs text-[#9ca3af] mt-0.5">
+                Automatisch kandidaten importeren via LinkedIn Lead Gen Forms API.
+              </p>
+            </div>
+          </div>
+          <StatusBadge ok={hasLinkedIn} label={hasLinkedIn ? 'Verbonden' : 'Niet verbonden'} />
+        </div>
+
+        {linkedinStatus === 'connected' && (
+          <div className="mt-3 rounded-lg bg-[#68b0a6]/10 border border-[#68b0a6]/20 px-3 py-2 text-xs text-[#68b0a6]">
+            ✓ LinkedIn succesvol gekoppeld!
+          </div>
+        )}
+        {linkedinStatus === 'error' && (
+          <div className="mt-3 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">
+            Koppelen mislukt. Controleer de LinkedIn OAuth instellingen.
+          </div>
+        )}
+
+        <div className="mt-4 space-y-3">
+          {!process.env.NEXT_PUBLIC_APP_URL && hasLinkedIn ? null : (
+            <div className="rounded-lg bg-[#1e2028] px-3 py-3 text-xs text-[#9ca3af] space-y-2">
+              <p className="font-medium text-white">Webhook URL (plak in LinkedIn Campaign Manager):</p>
+              <code className="block text-[#68b0a6] bg-[#14151b] px-2 py-1 rounded overflow-x-auto">
+                {typeof window !== 'undefined' ? window.location.origin : 'https://zwaluw-portal.vercel.app'}/api/integrations/linkedin/webhook
+              </code>
+            </div>
+          )}
+
+          {!hasLinkedIn ? (
+            <div className="space-y-3">
+              <div className="rounded-lg bg-[#1e2028] px-3 py-3 text-xs text-[#9ca3af]">
+                <p className="font-medium text-[#f7a247] mb-1">Vereiste omgevingsvariabelen</p>
+                <pre className="font-mono">
+{`LINKEDIN_CLIENT_ID=...
+LINKEDIN_CLIENT_SECRET=...
+LINKEDIN_WEBHOOK_SECRET=...  # optioneel, voor webhook verificatie`}
+                </pre>
+                <p className="mt-2">
+                  Maak een LinkedIn App aan op{' '}
+                  <span className="text-[#68b0a6]">developer.linkedin.com</span>, vraag
+                  Marketing Developer Platform toegang aan en activeer de scope{' '}
+                  <code className="text-[#68b0a6]">r_ads_leadgen_automation</code>.
+                </p>
+              </div>
+              <a
+                href="/api/integrations/linkedin/connect"
+                className="inline-flex items-center gap-2 rounded-lg bg-[#0A66C2] px-4 py-2 text-xs font-semibold text-white hover:bg-[#0958a8] transition"
+              >
+                Verbind met LinkedIn →
+              </a>
+            </div>
+          ) : (
+            <div className="rounded-lg bg-[#1e2028] p-3 space-y-2">
+              <p className="text-xs font-medium text-white">Leads importeren</p>
+              <p className="text-xs text-[#9ca3af]">
+                Haalt recente Lead Gen Form inzendingen op en maakt kandidaatprofielen aan (overslaat bestaande e-mailadressen).
+              </p>
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  onClick={importFromLinkedIn}
+                  disabled={linkedinImporting}
+                  className="rounded-lg bg-[#0A66C2] px-4 py-2 text-xs font-semibold text-white hover:bg-[#0958a8] disabled:opacity-50 transition-colors"
+                >
+                  {linkedinImporting ? 'Importeren...' : 'Importeer LinkedIn leads'}
+                </button>
+                {linkedinImportResult && (
+                  <span className="text-xs text-[#9ca3af]">{linkedinImportResult}</span>
+                )}
+              </div>
+              <div className="pt-1">
+                <a
+                  href="/api/integrations/linkedin/connect"
+                  className="text-xs text-[#9ca3af] hover:text-white transition underline underline-offset-2"
+                >
+                  Opnieuw verbinden
+                </a>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Info footer */}

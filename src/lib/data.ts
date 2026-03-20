@@ -6,6 +6,10 @@ import type {
   Appointment,
   Contract,
   DashboardStats,
+  ScreeningScript,
+  ScreeningAnswer,
+  InterviewChecklist,
+  InterviewChecklistResult,
 } from '@/types';
 
 // ─── Employees ────────────────────────────────────────────────────────────────
@@ -79,7 +83,8 @@ export async function getCandidates(status?: string): Promise<Candidate[]> {
       `
       id, status, name, email, phone, age, location, salaryExpectation,
       consentGiven, consentDate, consentExpiresAt, leadSource, leadCampaignId,
-      createdAt, updatedAt
+      assignedToId, createdAt, updatedAt,
+      assignedTo:User!Candidate_assignedToId_fkey (id, name)
     `
     )
     .order('createdAt', { ascending: false });
@@ -105,10 +110,15 @@ export async function getCandidate(id: string): Promise<Candidate | null> {
       id, status, name, email, phone, age, location, livingSituation,
       partnerEmployment, currentJob, reasonForLeaving, salaryExpectation,
       consentGiven, consentDate, consentExpiresAt, leadSource, leadCampaignId,
-      prescreeningToken, prescreeningExpiresAt, createdAt, updatedAt,
+      assignedToId, prescreeningToken, prescreeningExpiresAt, createdAt, updatedAt,
+      assignedTo:User!Candidate_assignedToId_fkey (id, name),
       candidateNotes:CandidateNote (
         id, candidateId, content, authorId, createdAt,
-        author:User!CandidateNote_authorId_fkey (id, name, role)
+        author:User!CandidateNote_authorId_fkey (id, name, role),
+        mentions:CandidateNoteMention (
+          id, noteId, userId,
+          user:User!CandidateNoteMention_userId_fkey (id, name)
+        )
       ),
       interviewScores:InterviewScore (
         id, candidateId, technicalSkills, communication, cultureFit,
@@ -305,4 +315,141 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     pendingLeave: pendingLeave.count ?? 0,
     openCandidates: candidates.count ?? 0,
   };
+}
+
+// ─── Screening Scripts ────────────────────────────────────────────────────────
+
+export async function getActiveScreeningScript(): Promise<ScreeningScript | null> {
+  const { data, error } = await supabaseAdmin
+    .from('ScreeningScript')
+    .select(
+      `
+      id, name, description, isActive, createdById, createdAt, updatedAt,
+      questions:ScreeningQuestion (
+        id, scriptId, question, placeholder, required, order
+      )
+    `
+    )
+    .eq('isActive', true)
+    .order('createdAt', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error) return null;
+  const script = data as unknown as ScreeningScript;
+  if (script?.questions) {
+    script.questions = [...script.questions].sort((a, b) => a.order - b.order);
+  }
+  return script;
+}
+
+export async function getAllScreeningScripts(): Promise<ScreeningScript[]> {
+  const { data, error } = await supabaseAdmin
+    .from('ScreeningScript')
+    .select(
+      `
+      id, name, description, isActive, createdById, createdAt, updatedAt,
+      createdBy:User!ScreeningScript_createdById_fkey (id, name),
+      questions:ScreeningQuestion (
+        id, scriptId, question, placeholder, required, order
+      )
+    `
+    )
+    .order('createdAt', { ascending: false });
+
+  if (error) {
+    console.error('getAllScreeningScripts error:', error.message);
+    return [];
+  }
+  return ((data as unknown as ScreeningScript[]) ?? []).map(s => ({
+    ...s,
+    questions: (s.questions ?? []).sort((a, b) => a.order - b.order),
+  }));
+}
+
+export async function getScreeningAnswers(candidateId: string): Promise<ScreeningAnswer[]> {
+  const { data, error } = await supabaseAdmin
+    .from('ScreeningAnswer')
+    .select(
+      `
+      id, questionId, candidateId, answer, answeredById, createdAt, updatedAt,
+      answeredBy:User!ScreeningAnswer_answeredById_fkey (id, name),
+      question:ScreeningQuestion!ScreeningAnswer_questionId_fkey (id, question, order)
+    `
+    )
+    .eq('candidateId', candidateId);
+
+  if (error) {
+    console.error('getScreeningAnswers error:', error.message);
+    return [];
+  }
+  return (data as unknown as ScreeningAnswer[]) ?? [];
+}
+
+// ─── Interview Checklists ─────────────────────────────────────────────────────
+
+export async function getActiveInterviewChecklist(): Promise<InterviewChecklist | null> {
+  const { data, error } = await supabaseAdmin
+    .from('InterviewChecklist')
+    .select(
+      `
+      id, name, description, isActive, createdById, createdAt, updatedAt,
+      items:InterviewChecklistItem (
+        id, checklistId, label, description, order
+      )
+    `
+    )
+    .eq('isActive', true)
+    .order('createdAt', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error) return null;
+  const checklist = data as unknown as InterviewChecklist;
+  if (checklist?.items) {
+    checklist.items = [...checklist.items].sort((a, b) => a.order - b.order);
+  }
+  return checklist;
+}
+
+export async function getAllInterviewChecklists(): Promise<InterviewChecklist[]> {
+  const { data, error } = await supabaseAdmin
+    .from('InterviewChecklist')
+    .select(
+      `
+      id, name, description, isActive, createdById, createdAt, updatedAt,
+      createdBy:User!InterviewChecklist_createdById_fkey (id, name),
+      items:InterviewChecklistItem (
+        id, checklistId, label, description, order
+      )
+    `
+    )
+    .order('createdAt', { ascending: false });
+
+  if (error) {
+    console.error('getAllInterviewChecklists error:', error.message);
+    return [];
+  }
+  return ((data as unknown as InterviewChecklist[]) ?? []).map(c => ({
+    ...c,
+    items: (c.items ?? []).sort((a, b) => a.order - b.order),
+  }));
+}
+
+export async function getChecklistResults(candidateId: string): Promise<InterviewChecklistResult[]> {
+  const { data, error } = await supabaseAdmin
+    .from('InterviewChecklistResult')
+    .select(
+      `
+      id, itemId, candidateId, checked, checkedById, checkedAt,
+      checkedBy:User!InterviewChecklistResult_checkedById_fkey (id, name)
+    `
+    )
+    .eq('candidateId', candidateId);
+
+  if (error) {
+    console.error('getChecklistResults error:', error.message);
+    return [];
+  }
+  return (data as unknown as InterviewChecklistResult[]) ?? [];
 }

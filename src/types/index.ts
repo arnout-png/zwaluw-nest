@@ -60,7 +60,17 @@ export type NotificationType =
   | 'CONTRACT_EXPIRING'
   | 'SICK_REPORT'
   | 'NEW_CANDIDATE'
+  | 'MENTION'
   | 'SYSTEM';
+
+export type LeadSource =
+  | 'FACEBOOK'
+  | 'LINKEDIN'
+  | 'INDEED'
+  | 'REFERRAL'
+  | 'MANUAL'
+  | 'GOOGLE'
+  | 'OTHER';
 
 // ─── Core entities — matching actual DB column names ──────────────────────────
 
@@ -144,6 +154,8 @@ export interface Candidate {
   leadCampaignId?: string;
   prescreeningToken?: string;
   prescreeningExpiresAt?: string;
+  assignedToId?: string;
+  assignedTo?: Pick<User, 'id' | 'name'>;
   createdAt: string;
   updatedAt: string;
   candidateNotes?: CandidateNote[];
@@ -156,7 +168,15 @@ export interface CandidateNote {
   content: string;
   authorId: string;
   createdAt: string;
-  author?: User;
+  author?: Pick<User, 'id' | 'name' | 'role'>;
+  mentions?: CandidateNoteMention[];
+}
+
+export interface CandidateNoteMention {
+  id: string;
+  noteId: string;
+  userId: string;
+  user?: Pick<User, 'id' | 'name'>;
 }
 
 export interface InterviewScore {
@@ -306,4 +326,71 @@ export interface DashboardStats {
 
 export interface EmployeeWithProfile extends User {
   employeeProfile?: EmployeeProfile;
+}
+
+// ─── Recruitment templates ─────────────────────────────────────────────────────
+
+export interface ScreeningScript {
+  id: string;
+  name: string;
+  description?: string;
+  isActive: boolean;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+  questions?: ScreeningQuestion[];
+  createdBy?: Pick<User, 'id' | 'name'>;
+}
+
+export interface ScreeningQuestion {
+  id: string;
+  scriptId: string;
+  question: string;
+  placeholder?: string;
+  required: boolean;
+  order: number;
+  answers?: ScreeningAnswer[];
+}
+
+export interface ScreeningAnswer {
+  id: string;
+  questionId: string;
+  candidateId: string;
+  answer: string;
+  answeredById: string;
+  createdAt: string;
+  updatedAt: string;
+  answeredBy?: Pick<User, 'id' | 'name'>;
+  question?: Pick<ScreeningQuestion, 'id' | 'question' | 'order'>;
+}
+
+export interface InterviewChecklist {
+  id: string;
+  name: string;
+  description?: string;
+  isActive: boolean;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+  items?: InterviewChecklistItem[];
+  createdBy?: Pick<User, 'id' | 'name'>;
+}
+
+export interface InterviewChecklistItem {
+  id: string;
+  checklistId: string;
+  label: string;
+  description?: string;
+  order: number;
+  results?: InterviewChecklistResult[];
+}
+
+export interface InterviewChecklistResult {
+  id: string;
+  itemId: string;
+  candidateId: string;
+  checked: boolean;
+  checkedById?: string;
+  checkedAt?: string;
+  checkedBy?: Pick<User, 'id' | 'name'>;
 }

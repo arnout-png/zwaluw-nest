@@ -1,0 +1,67 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getSession } from '@/lib/auth';
+import { supabaseAdmin } from '@/lib/supabase';
+
+export async function GET() {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
+  if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
+
+  const { data, error } = await supabaseAdmin
+    .from('InterviewChecklist')
+    .select(
+      `id, name, description, isActive, createdById, createdAt, updatedAt,
+       createdBy:User!InterviewChecklist_createdById_fkey (id, name),
+       items:InterviewChecklistItem (id, checklistId, label, description, order)`
+    )
+    .order('createdAt', { ascending: false });
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  const checklists = (data ?? []).map((c: { items?: { order: number }[] } & Record<string, unknown>) => ({
+    ...c,
+    items: (c.items ?? []).sort((a: { order: number }, b: { order: number }) => a.order - b.order),
+  }));
+
+  return NextResponse.json({ data: checklists });
+}
+
+export async function POST(request: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
+  if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
+
+  const body = await request.json();
+  const { name, description, isActive = false, items = [] } = body;
+
+  if (!name?.trim()) return NextResponse.json({ error: 'Naam is verplicht.' }, { status: 400 });
+
+  if (isActive) {
+    await supabaseAdmin.from('InterviewChecklist').update({ isActive: false }).neq('id', 'none');
+  }
+
+  const { data: checklist, error } = await supabaseAdmin
+    .from('InterviewChecklist')
+    .insert({
+      name: name.trim(),
+      description: description?.trim() ?? null,
+      isActive,
+      createdById: session.userId,
+    })
+    .select('id')
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (items.length > 0) {
+    const rows = items.map((item: { label: string; description?: string }, i: number) => ({
+      checklistId: checklist.id,
+      label: item.label,
+      description: item.description ?? null,
+      order: i + 1,
+    }));
+    await supabaseAdmin.from('InterviewChecklistItem').insert(rows);
+  }
+
+  return NextResponse.json({ data: { id: checklist.id } }, { status: 201 });
+}

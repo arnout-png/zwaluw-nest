@@ -4,6 +4,15 @@ import { getSession } from '@/lib/auth';
 import { getCandidate } from '@/lib/data';
 import { CandidateNotesClient } from './candidate-notes-client';
 import { CandidateStageClient } from './candidate-stage-client';
+import { CandidateAssignClient } from './candidate-assign-client';
+import { CandidateScreeningClient } from './candidate-screening-client';
+import { CandidateChecklistClient } from './candidate-checklist-client';
+import {
+  getActiveScreeningScript,
+  getScreeningAnswers,
+  getActiveInterviewChecklist,
+  getChecklistResults,
+} from '@/lib/data';
 import type { CandidateStatus } from '@/types';
 
 const STATUS_LABELS: Record<CandidateStatus, string> = {
@@ -61,8 +70,20 @@ export default async function CandidateDetailPage({
   if (session.role !== 'ADMIN' && session.role !== 'PLANNER') redirect('/dashboard');
 
   const { id } = await params;
-  const candidate = await getCandidate(id);
+  const [candidate, screeningScript, screeningAnswers, interviewChecklist, checklistResults] =
+    await Promise.all([
+      getCandidate(id),
+      getActiveScreeningScript(),
+      getScreeningAnswers(id),
+      getActiveInterviewChecklist(),
+      getChecklistResults(id),
+    ]);
   if (!candidate) notFound();
+
+  const SCREENING_STAGES: CandidateStatus[] = ['PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED'];
+  const INTERVIEW_STAGES: CandidateStatus[] = ['INTERVIEW', 'RESERVE_BANK', 'HIRED'];
+  const showScreening = SCREENING_STAGES.includes(candidate.status);
+  const showInterview = INTERVIEW_STAGES.includes(candidate.status);
 
   const consentDaysLeft = candidate.consentExpiresAt
     ? Math.ceil(
@@ -118,10 +139,19 @@ export default async function CandidateDetailPage({
         </div>
       </div>
 
-      {/* Stage voortgang */}
-      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
-        <h2 className="text-sm font-semibold text-white mb-4">Stage voortgang</h2>
-        <CandidateStageClient candidateId={candidate.id} currentStatus={candidate.status} />
+      {/* Stage voortgang + Toewijzing */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2 rounded-xl border border-[#363848] bg-[#252732] p-5">
+          <h2 className="text-sm font-semibold text-white mb-4">Stage voortgang</h2>
+          <CandidateStageClient candidateId={candidate.id} currentStatus={candidate.status} />
+        </div>
+        <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+          <h2 className="text-sm font-semibold text-white mb-3">Toegewezen aan</h2>
+          <CandidateAssignClient
+            candidateId={candidate.id}
+            assignedTo={candidate.assignedTo ?? null}
+          />
+        </div>
       </div>
 
       {/* Persoonlijke gegevens */}
@@ -156,6 +186,40 @@ export default async function CandidateDetailPage({
           />
         </dl>
       </div>
+
+      {/* Pre-screening script */}
+      {showScreening && screeningScript && (
+        <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-white">Pre-screening — {screeningScript.name}</h2>
+            <span className="rounded-full bg-yellow-500/10 px-2 py-0.5 text-[10px] font-medium text-yellow-400">
+              Script
+            </span>
+          </div>
+          <CandidateScreeningClient
+            candidateId={candidate.id}
+            script={screeningScript}
+            initialAnswers={screeningAnswers}
+          />
+        </div>
+      )}
+
+      {/* Interview checklist */}
+      {showInterview && interviewChecklist && (
+        <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-white">Interview checklist — {interviewChecklist.name}</h2>
+            <span className="rounded-full bg-purple-500/10 px-2 py-0.5 text-[10px] font-medium text-purple-400">
+              Checklist
+            </span>
+          </div>
+          <CandidateChecklistClient
+            candidateId={candidate.id}
+            checklist={interviewChecklist}
+            initialResults={checklistResults}
+          />
+        </div>
+      )}
 
       {/* Gespreksscores */}
       {candidate.interviewScores && candidate.interviewScores.length > 0 && (
