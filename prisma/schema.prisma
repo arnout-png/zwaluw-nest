@@ -25,6 +25,15 @@ enum Role {
   WAREHOUSE   // Warehouse staff
 }
 
+enum VacatureRol {
+  MONTEUR                 // Installatiemonteur — hands-on technische installatie
+  ADVISEUR                // Sales adviseur — klantgericht, buitendienst
+  BINNENDIENST_TECHNISCH  // Technische binnendienst — technische backoffice ondersteuning
+  BINNENDIENST_CALLCENTER // Callcenter medewerker — klantencontact
+  WAREHOUSE               // Magazijnmedewerker — logistiek en opslag
+  BACKOFFICE              // Backoffice medewerker — administratieve operaties
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -48,6 +57,7 @@ model User {
   screeningScriptsCreated ScreeningScript[]         @relation("ScriptCreator")
   checklistsCreated       InterviewChecklist[]      @relation("ChecklistCreator")
   checklistResults        InterviewChecklistResult[] @relation("ResultChecker")
+  jobOpeningsCreated      JobOpening[]              @relation("JobOpeningCreator")
 
   @@index([role])
   @@index([email])
@@ -98,9 +108,20 @@ model Candidate {
   leadSource        String?    // e.g., "FACEBOOK", "LINKEDIN", "INDEED", "MANUAL"
   leadCampaignId    String?    // Facebook/LinkedIn campaign ID for attribution
 
+  // Stage tracking
+  stageUpdatedAt    DateTime?  // Stamped whenever status changes
+
   // Assignment
   assignedToId      String?
   assignedTo        User?      @relation("CandidateAssignee", fields: [assignedToId], references: [id])
+
+  // Job opening (which vacancy did they apply through)
+  jobOpeningId      String?
+  jobOpening        JobOpening? @relation(fields: [jobOpeningId], references: [id], onDelete: SetNull)
+
+  // Rejection
+  rejectionReason     String?
+  rejectionEmailSent  Boolean  @default(false)
 
   // Relations
   interviewScores   InterviewScore[]
@@ -112,6 +133,7 @@ model Candidate {
   @@index([status])
   @@index([consentExpiresAt])
   @@index([assignedToId])
+  @@index([stageUpdatedAt])
 }
 
 model CandidateNote {
@@ -467,6 +489,7 @@ enum NotificationType {
   NEW_CANDIDATE
   MENTION
   SYSTEM
+  CANDIDATE_STAGE_ALERT
 }
 
 model Notification {
@@ -495,6 +518,7 @@ model ScreeningScript {
   name        String
   description String?
   isActive    Boolean             @default(true)
+  roleType    VacatureRol?
   questions   ScreeningQuestion[]
   createdById String
   createdBy   User                @relation("ScriptCreator", fields: [createdById], references: [id])
@@ -542,6 +566,7 @@ model InterviewChecklist {
   name        String
   description String?
   isActive    Boolean                  @default(true)
+  roleType    VacatureRol?
   items       InterviewChecklistItem[]
   createdById String
   createdBy   User                     @relation("ChecklistCreator", fields: [createdById], references: [id])
@@ -576,4 +601,31 @@ model InterviewChecklistResult {
 
   @@unique([itemId, candidateId])
   @@index([candidateId])
+}
+
+// ─────────────────────────────────────────────
+// Job Openings — public application forms
+// ─────────────────────────────────────────────
+
+model JobOpening {
+  id           String      @id @default(cuid())
+  slug         String      @unique
+  title        String
+  description  String      // Markdown
+  requirements String?     // Markdown
+  location     String?
+  hoursPerWeek String?
+  salaryRange  String?
+  imageUrl     String?
+  roleType     VacatureRol?
+  isActive     Boolean     @default(true)
+  createdById  String
+  createdBy    User        @relation("JobOpeningCreator", fields: [createdById], references: [id])
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  candidates   Candidate[]
+
+  @@index([isActive])
+  @@index([slug])
 }

@@ -14,6 +14,7 @@ import {
   getChecklistResults,
 } from '@/lib/data';
 import type { CandidateStatus } from '@/types';
+import { VACATURE_ROL_LABELS } from '@/types';
 
 const STATUS_LABELS: Record<CandidateStatus, string> = {
   NEW_LEAD: 'Nieuw',
@@ -70,15 +71,17 @@ export default async function CandidateDetailPage({
   if (session.role !== 'ADMIN' && session.role !== 'PLANNER') redirect('/dashboard');
 
   const { id } = await params;
-  const [candidate, screeningScript, screeningAnswers, interviewChecklist, checklistResults] =
+  const candidate = await getCandidate(id);
+  if (!candidate) notFound();
+
+  const roleType = candidate.jobOpening?.roleType ?? null;
+  const [screeningScript, screeningAnswers, interviewChecklist, checklistResults] =
     await Promise.all([
-      getCandidate(id),
-      getActiveScreeningScript(),
+      getActiveScreeningScript(roleType),
       getScreeningAnswers(id),
-      getActiveInterviewChecklist(),
+      getActiveInterviewChecklist(roleType),
       getChecklistResults(id),
     ]);
-  if (!candidate) notFound();
 
   const SCREENING_STAGES: CandidateStatus[] = ['PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED'];
   const INTERVIEW_STAGES: CandidateStatus[] = ['INTERVIEW', 'RESERVE_BANK', 'HIRED'];
@@ -114,6 +117,11 @@ export default async function CandidateDetailPage({
             <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLORS[candidate.status]}`}>
               {STATUS_LABELS[candidate.status]}
             </span>
+            {candidate.jobOpening?.roleType && (
+              <span className="rounded-full bg-[#68b0a6]/10 px-2.5 py-0.5 text-xs text-[#68b0a6]">
+                {VACATURE_ROL_LABELS[candidate.jobOpening.roleType]}
+              </span>
+            )}
             {candidate.leadSource && (
               <span className="rounded-full bg-[#363848] px-2.5 py-0.5 text-xs text-[#9ca3af]">
                 {candidate.leadSource}
@@ -143,7 +151,7 @@ export default async function CandidateDetailPage({
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2 rounded-xl border border-[#363848] bg-[#252732] p-5">
           <h2 className="text-sm font-semibold text-white mb-4">Stage voortgang</h2>
-          <CandidateStageClient candidateId={candidate.id} currentStatus={candidate.status} />
+          <CandidateStageClient candidateId={candidate.id} currentStatus={candidate.status} candidateEmail={candidate.email ?? undefined} />
         </div>
         <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
           <h2 className="text-sm font-semibold text-white mb-3">Toegewezen aan</h2>

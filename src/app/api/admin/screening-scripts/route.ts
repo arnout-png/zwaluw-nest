@@ -10,7 +10,7 @@ export async function GET() {
   const { data, error } = await supabaseAdmin
     .from('ScreeningScript')
     .select(
-      `id, name, description, isActive, createdById, createdAt, updatedAt,
+      `id, name, description, isActive, roleType, createdById, createdAt, updatedAt,
        createdBy:User!ScreeningScript_createdById_fkey (id, name),
        questions:ScreeningQuestion (id, scriptId, question, placeholder, required, order)`
     )
@@ -32,15 +32,18 @@ export async function POST(request: NextRequest) {
   if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
 
   const body = await request.json();
-  const { name, description, isActive = false, questions = [] } = body;
+  const { name, description, isActive = false, roleType = null, questions = [] } = body;
 
   if (!name?.trim()) {
     return NextResponse.json({ error: 'Naam is verplicht.' }, { status: 400 });
   }
 
-  // If activating this script, deactivate all others first
+  // Deactivate only scripts of the same roleType (scoped — not a global wipe)
   if (isActive) {
-    await supabaseAdmin.from('ScreeningScript').update({ isActive: false }).neq('id', 'none');
+    let deactivateQ = supabaseAdmin.from('ScreeningScript').update({ isActive: false });
+    if (roleType) deactivateQ = deactivateQ.eq('roleType', roleType) as typeof deactivateQ;
+    else deactivateQ = deactivateQ.is('roleType', null) as typeof deactivateQ;
+    await deactivateQ;
   }
 
   const { data: script, error } = await supabaseAdmin
@@ -49,6 +52,7 @@ export async function POST(request: NextRequest) {
       name: name.trim(),
       description: description?.trim() ?? null,
       isActive,
+      roleType: roleType ?? null,
       createdById: session.userId,
     })
     .select('id')

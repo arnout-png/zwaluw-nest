@@ -61,7 +61,8 @@ export type NotificationType =
   | 'SICK_REPORT'
   | 'NEW_CANDIDATE'
   | 'MENTION'
-  | 'SYSTEM';
+  | 'SYSTEM'
+  | 'CANDIDATE_STAGE_ALERT';
 
 export type LeadSource =
   | 'FACEBOOK'
@@ -71,6 +72,23 @@ export type LeadSource =
   | 'MANUAL'
   | 'GOOGLE'
   | 'OTHER';
+
+export type VacatureRol =
+  | 'MONTEUR'
+  | 'ADVISEUR'
+  | 'BINNENDIENST_TECHNISCH'
+  | 'BINNENDIENST_CALLCENTER'
+  | 'WAREHOUSE'
+  | 'BACKOFFICE';
+
+export const VACATURE_ROL_LABELS: Record<VacatureRol, string> = {
+  MONTEUR:                 'Installatiemonteur',
+  ADVISEUR:                'Sales adviseur',
+  BINNENDIENST_TECHNISCH:  'Technische binnendienst',
+  BINNENDIENST_CALLCENTER: 'Callcenter medewerker',
+  WAREHOUSE:               'Magazijnmedewerker',
+  BACKOFFICE:              'Backoffice medewerker',
+};
 
 // ─── Core entities — matching actual DB column names ──────────────────────────
 
@@ -156,10 +174,38 @@ export interface Candidate {
   prescreeningExpiresAt?: string;
   assignedToId?: string;
   assignedTo?: Pick<User, 'id' | 'name'>;
+  stageUpdatedAt?: string;
+  jobOpeningId?: string;
+  jobOpening?: Pick<JobOpening, 'id' | 'title' | 'slug' | 'roleType'>;
+  linkedinUrl?: string;
+  cvUrl?: string;
+  street?: string;
+  city?: string;
+  postalCode?: string;
+  rejectionReason?: string;
+  rejectionEmailSent?: boolean;
   createdAt: string;
   updatedAt: string;
   candidateNotes?: CandidateNote[];
   interviewScores?: InterviewScore[];
+}
+
+export interface JobOpening {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  requirements?: string;
+  location?: string;
+  hoursPerWeek?: string;
+  salaryRange?: string;
+  imageUrl?: string;
+  roleType?: VacatureRol;
+  isActive: boolean;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { candidates: number };
 }
 
 export interface CandidateNote {
@@ -335,6 +381,7 @@ export interface ScreeningScript {
   name: string;
   description?: string;
   isActive: boolean;
+  roleType?: VacatureRol;
   createdById: string;
   createdAt: string;
   updatedAt: string;
@@ -369,6 +416,7 @@ export interface InterviewChecklist {
   name: string;
   description?: string;
   isActive: boolean;
+  roleType?: VacatureRol;
   createdById: string;
   createdAt: string;
   updatedAt: string;

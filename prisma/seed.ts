@@ -270,6 +270,375 @@ async function main() {
   await supabase.from("Notification").insert(notifRows);
   console.log("  ✓ 11 notifications");
 
+  // ─── JOB OPENINGS ─────────────────────────────────────────────────────────────
+  console.log("💼 Creating job openings...");
+  const jobOpenings = [
+    {
+      id: "jo-monteur",
+      slug: "installatiemonteur",
+      title: "Installatiemonteur",
+      description: "Als installatiemonteur bij Zwaluw Comfortsanitair plaats jij badkamer- en doucheaanpassingen bij senioren thuis. Je werkt zelfstandig, rijdt in een bedrijfsbus en hebt dagelijks contact met klanten.",
+      requirements: "MBO-niveau in technische richting, rijbewijs B, klantgericht, zelfstandig, fysiek in orde",
+      location: "Regio Rotterdam / Den Haag",
+      hoursPerWeek: 40,
+      salaryRange: "€2.400 – €3.000",
+      roleType: "MONTEUR",
+      isActive: true,
+    },
+    {
+      id: "jo-adviseur",
+      slug: "sales-adviseur",
+      title: "Sales Adviseur Buitendienst",
+      description: "Als sales adviseur bezoek jij senioren thuis voor een vrijblijvend adviesgesprek. Je inventariseert de wensen en maakt een passend aanbod. Geen koude acquisitie — alle afspraken worden centraal ingepland.",
+      requirements: "Commerciële ervaring, rijbewijs B, communicatief sterk, empathisch, resultaatgericht",
+      location: "Regio Rotterdam / Den Haag / Delft",
+      hoursPerWeek: 40,
+      salaryRange: "€2.600 – €3.200 + provisie",
+      roleType: "ADVISEUR",
+      isActive: true,
+    },
+    {
+      id: "jo-binnendienst-technisch",
+      slug: "technische-binnendienst",
+      title: "Technische Binnendienst Medewerker",
+      description: "Jij bent de schakel tussen monteurs in het veld en de planning. Je verwerkt werkbonnen, beheert de monteurscommunicatie en signaleert knelpunten proactief.",
+      requirements: "Technische achtergrond of affiniteit, ervaring met werkbonbeheer of ERP, gestructureerd, goed in prioriteren",
+      location: "Rotterdam",
+      hoursPerWeek: 40,
+      salaryRange: "€2.400 – €2.900",
+      roleType: "BINNENDIENST_TECHNISCH",
+      isActive: true,
+    },
+    {
+      id: "jo-callcenter",
+      slug: "callcenter-medewerker",
+      title: "Callcenter Medewerker",
+      description: "Als callcenter medewerker ben jij het eerste aanspreekpunt voor onze klanten. Je plant afspraken in, beantwoordt vragen en lost klachten op — altijd vriendelijk en oplossingsgedreven.",
+      requirements: "Ervaring in klantcontact of callcenter, CRM-kennis is een pré, stressbestendig, goede communicatie",
+      location: "Rotterdam",
+      hoursPerWeek: 24,
+      salaryRange: "€1.800 – €2.200",
+      roleType: "BINNENDIENST_CALLCENTER",
+      isActive: true,
+    },
+    {
+      id: "jo-warehouse",
+      slug: "magazijnmedewerker",
+      title: "Magazijnmedewerker",
+      description: "Jij zorgt dat alle monteurs elke dag met de juiste materialen op pad gaan. Je beheert de voorraad, verwerkt inkomende leveringen en bereidt de dagelijkse materiaalsets voor.",
+      requirements: "Logistieke ervaring, bij voorkeur heftruckcertificaat, nauwkeurig, fysiek belastbaar, teamspeler",
+      location: "Rotterdam",
+      hoursPerWeek: 40,
+      salaryRange: "€2.100 – €2.600",
+      roleType: "WAREHOUSE",
+      isActive: true,
+    },
+    {
+      id: "jo-backoffice",
+      slug: "backoffice-medewerker",
+      title: "Backoffice Medewerker",
+      description: "Als backoffice medewerker verwerk jij offertes, facturen en garantieclaims. Je werkt nauw samen met planning en sales en zorgt dat de administratie altijd op orde is.",
+      requirements: "MBO+ administratieve opleiding, ervaring met financiële administratie, Excel, zelfstandig, nauwkeurig",
+      location: "Rotterdam",
+      hoursPerWeek: 32,
+      salaryRange: "€2.200 – €2.700",
+      roleType: "BACKOFFICE",
+      isActive: true,
+    },
+  ];
+  for (const jo of jobOpenings) {
+    await supabase.from("JobOpening").upsert(jo, { onConflict: "id", ignoreDuplicates: true });
+  }
+  console.log("  ✓ 6 job openings");
+
+  // ─── SCREENING SCRIPTS ────────────────────────────────────────────────────────
+  console.log("📋 Creating screening scripts...");
+
+  const scriptDefs: Array<{
+    id: string; name: string; description: string; roleType: string; createdById: string;
+    questions: Array<{ question: string; placeholder: string; required: boolean }>;
+  }> = [
+    {
+      id: "ss-monteur",
+      name: "Pre-screening Installatiemonteur",
+      description: "Standaard prescreening voor monteur-sollicitanten",
+      roleType: "MONTEUR",
+      createdById: uArnout,
+      questions: [
+        { question: "Wat is uw hoogst afgeronde opleiding en in welke richting?", placeholder: "Bijv. MBO Installatietechniek niveau 3", required: true },
+        { question: "Hoeveel jaar werkervaring heeft u in de installatie- of bouwbranche?", placeholder: "Bijv. 4 jaar als loodgieter bij een installatiebedrijf", required: true },
+        { question: "Heeft u ervaring met het plaatsen van sanitaire voorzieningen (douche, bad, beugels)?", placeholder: "Bijv. ja, 2 jaar ervaring bij een badkamerbedrijf", required: true },
+        { question: "Beschikt u over een geldig rijbewijs B en heeft u dagelijks toegang tot eigen vervoer?", placeholder: "Ja / Nee", required: true },
+        { question: "Heeft u ervaring met werken bij mensen thuis, bij voorkeur senioren?", placeholder: "Bijv. ja, bij thuiszorginstelling of particuliere klanten", required: false },
+        { question: "Wat is uw salarisverwachting per maand (bruto, fulltime)?", placeholder: "Bijv. €2.500 – €2.800", required: true },
+        { question: "Wanneer zou u beschikbaar zijn om te starten?", placeholder: "Bijv. per 1 april 2026 of na opzegtermijn van 1 maand", required: true },
+      ],
+    },
+    {
+      id: "ss-adviseur",
+      name: "Pre-screening Sales Adviseur",
+      description: "Prescreening voor sales buitendienst sollicitanten",
+      roleType: "ADVISEUR",
+      createdById: uArnout,
+      questions: [
+        { question: "Wat voor commerciële werkervaring heeft u en in welke branche?", placeholder: "Bijv. 3 jaar als accountmanager bij een energiebedrijf", required: true },
+        { question: "Aan welke doelgroep heeft u eerder producten of diensten verkocht?", placeholder: "Bijv. particulieren, zakelijk, senioren", required: true },
+        { question: "Hoe gaat u om met een bezwaar als een klant zegt 'ik moet er nog even over nadenken'?", placeholder: "Beschrijf uw aanpak kort", required: true },
+        { question: "Heeft u ervaring met het voeren van gesprekken bij senioren thuis?", placeholder: "Bijv. ja, via zorgverzekeraar of thuiszorgorganisatie", required: false },
+        { question: "Beschikt u over rijbewijs B en bent u bereid in de regio Rotterdam/Den Haag te rijden?", placeholder: "Ja / Nee + eventuele voorkeurregio", required: true },
+        { question: "Wat verwacht u te verdienen (basissalaris + verwachte provisie)?", placeholder: "Bijv. €2.800 basis + €500–€1.000 provisie", required: true },
+        { question: "Per wanneer bent u beschikbaar?", placeholder: "Bijv. direct beschikbaar of per 15 april", required: true },
+      ],
+    },
+    {
+      id: "ss-binnendienst-technisch",
+      name: "Pre-screening Technische Binnendienst",
+      description: "Prescreening voor technisch binnendienst medewerkers",
+      roleType: "BINNENDIENST_TECHNISCH",
+      createdById: uArnout,
+      questions: [
+        { question: "Heeft u een technische opleiding of achtergrond? Zo ja, welke?", placeholder: "Bijv. MBO Werktuigbouwkunde of ervaring in de installatiebranche", required: true },
+        { question: "Heeft u ervaring met het verwerken en administreren van werkbonnen?", placeholder: "Bijv. ja, via een servicebedrijf of montageorganisatie", required: true },
+        { question: "Met welke ERP- of planningssystemen heeft u gewerkt?", placeholder: "Bijv. Exact, AFAS, Simplicate, of eigen planningstools", required: false },
+        { question: "Hoe prioriteert u taken als er tegelijk meerdere monteurs bellen met urgente meldingen?", placeholder: "Beschrijf uw werkwijze of geef een voorbeeld", required: true },
+        { question: "Heeft u ervaring met het telefonisch ondersteunen van vakmensen in het veld?", placeholder: "Bijv. ja, als werkvoorbereider of calculator", required: false },
+        { question: "Wat is uw salarisverwachting per maand (bruto, fulltime)?", placeholder: "Bijv. €2.500 – €2.800", required: true },
+      ],
+    },
+    {
+      id: "ss-callcenter",
+      name: "Pre-screening Callcenter Medewerker",
+      description: "Prescreening voor callcenter en klantcontact sollicitanten",
+      roleType: "BINNENDIENST_CALLCENTER",
+      createdById: uArnout,
+      questions: [
+        { question: "Heeft u eerder in een callcenter of soortgelijke klantcontactrol gewerkt? Zo ja, voor welke organisatie?", placeholder: "Bijv. 2 jaar bij een zorgverzekeraar of gemeentelijk KCC", required: true },
+        { question: "Hoe pakt u een gesprek aan met een boze klant die een klacht heeft over de service?", placeholder: "Beschrijf uw aanpak stap voor stap", required: true },
+        { question: "Hoeveel gesprekken per dag hanteerde u gemiddeld in uw vorige rol?", placeholder: "Bijv. 40–60 inbound gesprekken per dag", required: false },
+        { question: "Heeft u ervaring met het werken in een CRM- of planningssysteem?", placeholder: "Bijv. Salesforce, HubSpot, eigen planning-tool", required: false },
+        { question: "Spreekt u naast Nederlands nog andere talen? Zo ja, welke?", placeholder: "Bijv. Engels en Turks op gespreksniveau", required: false },
+        { question: "Hoeveel uur per week bent u beschikbaar en op welke dagen?", placeholder: "Bijv. 24 uur, maandag t/m donderdag", required: true },
+        { question: "Wat is uw salarisverwachting per maand (bruto, op basis van uw beschikbaarheid)?", placeholder: "Bijv. €1.800 – €2.000 bij 24 uur", required: true },
+      ],
+    },
+    {
+      id: "ss-warehouse",
+      name: "Pre-screening Magazijnmedewerker",
+      description: "Prescreening voor magazijn en logistiek sollicitanten",
+      roleType: "WAREHOUSE",
+      createdById: uArnout,
+      questions: [
+        { question: "Heeft u eerder in een magazijn of logistieke omgeving gewerkt? Zo ja, wat waren uw taken?", placeholder: "Bijv. orderpicken, inboeken leveringen, voorraadbeheer bij een groothandel", required: true },
+        { question: "Beschikt u over een geldig heftruckcertificaat?", placeholder: "Ja / Nee / In aanvraag", required: true },
+        { question: "Hoe gaat u te werk bij het opsporen van een voorraadverschil?", placeholder: "Beschrijf uw aanpak of geef een voorbeeld", required: false },
+        { question: "Bent u fysiek belastbaar en comfortabel met tillen tot 25 kg?", placeholder: "Ja / Nee, licht toelichting", required: true },
+        { question: "Bent u bereid om in ploegendienst of vroege dienst te werken indien nodig?", placeholder: "Ja / Nee / Bespreekbaar", required: false },
+        { question: "Wat is uw salarisverwachting per maand (bruto, fulltime)?", placeholder: "Bijv. €2.100 – €2.400", required: true },
+      ],
+    },
+    {
+      id: "ss-backoffice",
+      name: "Pre-screening Backoffice Medewerker",
+      description: "Prescreening voor backoffice en administratieve sollicitanten",
+      roleType: "BACKOFFICE",
+      createdById: uArnout,
+      questions: [
+        { question: "Wat is uw hoogst afgeronde opleiding en in welke richting?", placeholder: "Bijv. MBO Bedrijfsadministratie niveau 4 of HBO Accountancy", required: true },
+        { question: "Heeft u ervaring met het verwerken van facturen, offertes of garantieclaims?", placeholder: "Bijv. ja, 3 jaar bij een bouwbedrijf als administratief medewerker", required: true },
+        { question: "Hoe organiseert u uw werkdag als u meerdere deadlines tegelijk heeft?", placeholder: "Beschrijf uw aanpak of gebruik van tools", required: true },
+        { question: "Kunt u een voorbeeld geven van een situatie waarin u een klacht of fout in de administratie moest oplossen?", placeholder: "Kort voorbeeld is voldoende", required: false },
+        { question: "Hoe beoordeelt u uw eigen Excel-vaardigheden op een schaal van 1–5? Welke functies gebruikt u?", placeholder: "Bijv. 4/5 — draaitabellen, VLOOKUP, conditionele opmaak", required: true },
+        { question: "Kunt u zelfstandig werken zonder voortdurende aansturing?", placeholder: "Ja / Nee + kort voorbeeld", required: true },
+        { question: "Wat is uw salarisverwachting per maand (bruto, op basis van uw beschikbaarheid)?", placeholder: "Bijv. €2.200 – €2.500 bij 32 uur", required: true },
+      ],
+    },
+  ];
+
+  for (const s of scriptDefs) {
+    const { data: script, error } = await supabase
+      .from("ScreeningScript")
+      .upsert(
+        { id: s.id, name: s.name, description: s.description, roleType: s.roleType, isActive: true, createdById: s.createdById },
+        { onConflict: "id", ignoreDuplicates: true }
+      )
+      .select("id")
+      .single();
+    if (error) { console.error(`  ✗ Script ${s.id}: ${error.message}`); continue; }
+    const scriptId = script?.id ?? s.id;
+    const questionRows = s.questions.map((q, i) => ({
+      scriptId,
+      question: q.question,
+      placeholder: q.placeholder || null,
+      required: q.required,
+      order: i + 1,
+    }));
+    // Only insert if no questions exist yet
+    const { count } = await supabase.from("ScreeningQuestion").select("id", { count: "exact", head: true }).eq("scriptId", scriptId);
+    if (!count) {
+      await supabase.from("ScreeningQuestion").insert(questionRows);
+    }
+  }
+  console.log("  ✓ 6 screening scripts");
+
+  // ─── INTERVIEW CHECKLISTS ─────────────────────────────────────────────────────
+  console.log("✅ Creating interview checklists...");
+
+  const checklistDefs: Array<{
+    id: string; name: string; description: string; roleType: string; createdById: string;
+    items: Array<{ label: string; description?: string }>;
+  }> = [
+    {
+      id: "ic-monteur",
+      name: "Interview Checklist Installatiemonteur",
+      description: "Standaard interviewchecklist voor monteur-sollicitanten",
+      roleType: "MONTEUR",
+      createdById: uArnout,
+      items: [
+        { label: "Welkom & bedrijfspresentatie", description: "Zwaluw Comfortsanitair introduceren: missie, doelgroep senioren, werkgebied" },
+        { label: "Diploma en certificaten controleren", description: "MBO-diploma in technische richting inzien of kopiëren" },
+        { label: "Werkervaring installatiewerk doorlopen", description: "Concreet navragen: welke projecten, zelfstandig of in team?" },
+        { label: "Rijbewijs B inzien", description: "Geldig rijbewijs voor de bedrijfsbus is vereist" },
+        { label: "Casus: klant in paniek over beschadiging", description: "Hoe reageert kandidaat? Test klantgerichtheid en kalmte" },
+        { label: "VCA of veiligheidsbewustzijn bespreken", description: "Heeft kandidaat VCA? Zo nee, bereid te behalen?" },
+        { label: "Beschikbaarheid en opzegtermijn bevestigen", description: "Exacte startdatum en eventuele verplichtingen" },
+        { label: "Arbeidsvoorwaarden toelichten", description: "Salaris, reiskosten, gereedschapsvergoeding, collectieve verzekering" },
+        { label: "Referentie opvragen", description: "Minimaal één werkgever als referentie — toestemming vragen" },
+        { label: "Vervolgprocedure uitleggen", description: "Termijn terugkoppeling, eventueel tweede gesprek of proefdag" },
+      ],
+    },
+    {
+      id: "ic-adviseur",
+      name: "Interview Checklist Sales Adviseur",
+      description: "Interviewchecklist voor sales buitendienst sollicitanten",
+      roleType: "ADVISEUR",
+      createdById: uArnout,
+      items: [
+        { label: "Welkom & verkoopstrategie uitleggen", description: "Lead-gedreven model: geen koude acquisitie, ingeplande afspraken" },
+        { label: "Commercieel track record doorlopen", description: "Concrete cijfers: conversiepercentage, gemiddelde orderwaarde" },
+        { label: "Rollenspel: intake-gesprek bij senior thuis", description: "Kandidaat speelt adviseur, interviewer speelt sceptische senior" },
+        { label: "Empathie voor senioren beoordelen", description: "Hoe gaat kandidaat om met langzamere besluitvorming of emotionele weerstand?" },
+        { label: "Bezwaarafhandeling doorlopen", description: "Stel bezwaar voor: 'Ik wil het eerst met mijn kinderen bespreken'" },
+        { label: "Rijbewijs B + reisbereidheid bevestigen", description: "Regio Rotterdam/Den Haag/Delft — dagelijks autorijden vereist" },
+        { label: "Provisiestructuur en verdienmodel uitleggen", description: "Basissalaris + provisie per verkoop — verwachting afstemmen" },
+        { label: "Zelfstandig agenda beheren", description: "Kandidaat plant zelf follow-ups in — vraag naar gebruikte methodes" },
+        { label: "Referentie opvragen", description: "Bij voorkeur een vorige salesmanager als referentie" },
+      ],
+    },
+    {
+      id: "ic-binnendienst-technisch",
+      name: "Interview Checklist Technische Binnendienst",
+      description: "Interviewchecklist voor technisch binnendienst medewerkers",
+      roleType: "BINNENDIENST_TECHNISCH",
+      createdById: uArnout,
+      items: [
+        { label: "Welkom & takenoverzicht presenteren", description: "Rol uitleggen: schakelfunctie monteurs, planning, werkbonbeheer" },
+        { label: "Technische kennis beoordelen", description: "Kent kandidaat basisbegrippen installatietechniek? (sanitair, cv, elektra)" },
+        { label: "ERP- en systemenervaring navragen", description: "Welke systemen, hoe snel leert kandidaat nieuw systeem?" },
+        { label: "Stress-scenario: 3 monteurs bellen tegelijk", description: "Wie krijgt prioriteit? Hoe registreert kandidaat de meldingen?" },
+        { label: "Interne en externe communicatie beoordelen", description: "Taalgebruik schriftelijk en mondeling — navragen via e-mailvoorbeeld" },
+        { label: "Nauwkeurigheid en foutpreventie bespreken", description: "Hoe voorkomt kandidaat fouten bij werkbonverwerking?" },
+        { label: "Beschikbaarheid en werkuren bevestigen", description: "40 uur, maandag t/m vrijdag — flexibiliteit bij piekdrukte?" },
+        { label: "Arbeidsvoorwaarden toelichten", description: "Salaris, reiskosten, pensioenregeling" },
+      ],
+    },
+    {
+      id: "ic-callcenter",
+      name: "Interview Checklist Callcenter Medewerker",
+      description: "Interviewchecklist voor callcenter en klantcontact sollicitanten",
+      roleType: "BINNENDIENST_CALLCENTER",
+      createdById: uArnout,
+      items: [
+        { label: "Welkom & rol uitleggen", description: "Inbound + outbound mix, afsprakenbeheer, klachtenafhandeling" },
+        { label: "Klantenservice-ervaring beoordelen", description: "Eerdere functies, type klanten, volumes" },
+        { label: "Telefonische presentatie beoordelen", description: "Kandidaat belt als 'Zwaluw medewerker' — beoordeel stem, intonatie, helderheid" },
+        { label: "Klachtenscenario doorlopen", description: "Stel scenario voor: klant belt boos omdat monteur niet is komen opdagen" },
+        { label: "Planningssoftware en CRM navragen", description: "Kandidaat comfortabel met digitale systemen? Bereid te leren?" },
+        { label: "Uren en roostersysteem bespreken", description: "24 uur, welke dagen voorkeur? Flexibiliteit bij ziekte collega?" },
+        { label: "Taalvaardigheid Nederlands beoordelen", description: "Helder en correct Nederlands spreken is vereist voor seniorencontact" },
+        { label: "Arbeidsvoorwaarden toelichten", description: "Salaris op basis van uren, reiskosten, collectieve verzekering" },
+        { label: "Referentie opvragen", description: "Vorige leidinggevende of teamleider" },
+      ],
+    },
+    {
+      id: "ic-warehouse",
+      name: "Interview Checklist Magazijnmedewerker",
+      description: "Interviewchecklist voor magazijn en logistiek sollicitanten",
+      roleType: "WAREHOUSE",
+      createdById: uArnout,
+      items: [
+        { label: "Welkom & rondleiding magazijn", description: "Kandidaat het magazijn tonen — observeer reactie en interesse" },
+        { label: "Logistieke werkervaring doorlopen", description: "Welke organisaties, welke taken, ploegendienst ervaring?" },
+        { label: "Heftruckcertificaat controleren", description: "Certificaat inzien of datum behalen bespreken" },
+        { label: "Fysieke belastbaarheid bespreken", description: "Tillen tot 25 kg, staand werk — kandidaat comfortabel?" },
+        { label: "Nauwkeurigheid voorraadbeheer testen", description: "Stel een scenario voor: leverancier levert 8 items, bon zegt 10" },
+        { label: "Veiligheidsbewustzijn beoordelen", description: "Vraag naar eerdere BHV- of VCA-certificaten, houding t.a.v. veiligheid" },
+        { label: "Teamwerk en samenwerking bespreken", description: "Hoe werkt kandidaat samen met monteurs die 's ochtends vroeg vertrekken?" },
+        { label: "Werktijden en vroege diensten bevestigen", description: "Start om 06:30 uur op drukke dagen — akkoord?" },
+        { label: "Salaris en CAO toelichten", description: "CAO Groothandel van toepassing, periodieken uitleggen" },
+        { label: "Vervolgprocedure uitleggen", description: "Proefdag in het magazijn als onderdeel van selectie" },
+      ],
+    },
+    {
+      id: "ic-backoffice",
+      name: "Interview Checklist Backoffice Medewerker",
+      description: "Interviewchecklist voor backoffice en administratieve sollicitanten",
+      roleType: "BACKOFFICE",
+      createdById: uArnout,
+      items: [
+        { label: "Welkom & procesuitleg", description: "Uitleg offertes → werkbonnen → facturen → garantieclaims flow" },
+        { label: "Opleiding en achtergrond doorlopen", description: "Diploma controleren, relevante vakken of modules bespreken" },
+        { label: "Financiële administratie-ervaring navragen", description: "Factuurverwerking, btw, creditnota's — praktische kennis toetsen" },
+        { label: "Excel live-check uitvoeren", description: "Kandidaat opent Excel — benoem functies die kandidaat kent (VLOOKUP, draaitabel)" },
+        { label: "Zelforganisatie en planning bevragen", description: "Hoe beheert kandidaat meerdere openstaande taken met deadlines?" },
+        { label: "Garantieclaim-scenario doorlopen", description: "Klant meldt dat geplaatste stoel loszit na 3 weken — hoe verwerkt kandidaat dit?" },
+        { label: "Foutpreventie en kwaliteitscontrole bespreken", description: "Welke checks voert kandidaat uit vóór verzenden van een factuur?" },
+        { label: "Communicatie met andere afdelingen beoordelen", description: "Hoe stelt kandidaat een vraag of correctieverzoek op richting planning?" },
+        { label: "Beschikbaarheid en werkdagen bevestigen", description: "32 uur, welke 4 dagen voorkeur? Flexibiliteit voor piekperiodes?" },
+        { label: "Salaris en arbeidsvoorwaarden toelichten", description: "Bruto salaris, 8% vakantiegeld, pensioenregeling, hybride werkmogelijkheid" },
+      ],
+    },
+  ];
+
+  for (const cl of checklistDefs) {
+    const { data: checklist, error } = await supabase
+      .from("InterviewChecklist")
+      .upsert(
+        { id: cl.id, name: cl.name, description: cl.description, roleType: cl.roleType, isActive: true, createdById: cl.createdById },
+        { onConflict: "id", ignoreDuplicates: true }
+      )
+      .select("id")
+      .single();
+    if (error) { console.error(`  ✗ Checklist ${cl.id}: ${error.message}`); continue; }
+    const checklistId = checklist?.id ?? cl.id;
+    const itemRows = cl.items.map((item, i) => ({
+      checklistId,
+      label: item.label,
+      description: item.description ?? null,
+      order: i + 1,
+    }));
+    const { count } = await supabase.from("InterviewChecklistItem").select("id", { count: "exact", head: true }).eq("checklistId", checklistId);
+    if (!count) {
+      await supabase.from("InterviewChecklistItem").insert(itemRows);
+    }
+  }
+  console.log("  ✓ 6 interview checklists");
+
+  // ─── LINK CANDIDATES TO JOB OPENINGS ─────────────────────────────────────────
+  console.log("🔗 Linking candidates to job openings...");
+  const candidateJobLinks = [
+    { id: "cand-1", jobOpeningId: "jo-monteur" },
+    { id: "cand-2", jobOpeningId: "jo-monteur" },
+    { id: "cand-3", jobOpeningId: "jo-monteur" },
+    { id: "cand-4", jobOpeningId: "jo-monteur" },
+    { id: "cand-5", jobOpeningId: "jo-monteur" },
+    { id: "cand-6", jobOpeningId: "jo-monteur" },
+    { id: "cand-7", jobOpeningId: "jo-monteur" },
+  ];
+  for (const link of candidateJobLinks) {
+    await supabase.from("Candidate").update({ jobOpeningId: link.jobOpeningId }).eq("id", link.id);
+  }
+  console.log("  ✓ 7 candidates linked to jo-monteur");
+
   // ─── DONE ────────────────────────────────────────────────────────────────────
   console.log("\n✅ Seed completed!\n");
   console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");

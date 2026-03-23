@@ -12,16 +12,27 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await request.json();
-  const { name, description, isActive, items } = body;
+  const { name, description, isActive, roleType, items } = body;
 
+  // Deactivate only checklists of the same roleType (scoped — not a global wipe)
   if (isActive === true) {
-    await supabaseAdmin.from('InterviewChecklist').update({ isActive: false }).neq('id', id);
+    let rt = roleType !== undefined ? (roleType ?? null) : undefined;
+    if (rt === undefined) {
+      const { data: current } = await supabaseAdmin
+        .from('InterviewChecklist').select('roleType').eq('id', id).single();
+      rt = current?.roleType ?? null;
+    }
+    let deactivateQ = supabaseAdmin.from('InterviewChecklist').update({ isActive: false }).neq('id', id);
+    if (rt) deactivateQ = deactivateQ.eq('roleType', rt) as typeof deactivateQ;
+    else deactivateQ = deactivateQ.is('roleType', null) as typeof deactivateQ;
+    await deactivateQ;
   }
 
   const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (name !== undefined) updates.name = name.trim();
   if (description !== undefined) updates.description = description?.trim() ?? null;
   if (isActive !== undefined) updates.isActive = isActive;
+  if (roleType !== undefined) updates.roleType = roleType ?? null;
 
   await supabaseAdmin.from('InterviewChecklist').update(updates).eq('id', id);
 

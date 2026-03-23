@@ -10,7 +10,7 @@ export async function GET() {
   const { data, error } = await supabaseAdmin
     .from('InterviewChecklist')
     .select(
-      `id, name, description, isActive, createdById, createdAt, updatedAt,
+      `id, name, description, isActive, roleType, createdById, createdAt, updatedAt,
        createdBy:User!InterviewChecklist_createdById_fkey (id, name),
        items:InterviewChecklistItem (id, checklistId, label, description, order)`
     )
@@ -32,12 +32,16 @@ export async function POST(request: NextRequest) {
   if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
 
   const body = await request.json();
-  const { name, description, isActive = false, items = [] } = body;
+  const { name, description, isActive = false, roleType = null, items = [] } = body;
 
   if (!name?.trim()) return NextResponse.json({ error: 'Naam is verplicht.' }, { status: 400 });
 
+  // Deactivate only checklists of the same roleType (scoped — not a global wipe)
   if (isActive) {
-    await supabaseAdmin.from('InterviewChecklist').update({ isActive: false }).neq('id', 'none');
+    let deactivateQ = supabaseAdmin.from('InterviewChecklist').update({ isActive: false });
+    if (roleType) deactivateQ = deactivateQ.eq('roleType', roleType) as typeof deactivateQ;
+    else deactivateQ = deactivateQ.is('roleType', null) as typeof deactivateQ;
+    await deactivateQ;
   }
 
   const { data: checklist, error } = await supabaseAdmin
@@ -46,6 +50,7 @@ export async function POST(request: NextRequest) {
       name: name.trim(),
       description: description?.trim() ?? null,
       isActive,
+      roleType: roleType ?? null,
       createdById: session.userId,
     })
     .select('id')

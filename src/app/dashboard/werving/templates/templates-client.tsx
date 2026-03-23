@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { ScreeningScript, InterviewChecklist } from '@/types';
+import type { ScreeningScript, InterviewChecklist, VacatureRol } from '@/types';
+import { VACATURE_ROL_LABELS } from '@/types';
 
 interface Props {
   screeningScripts: ScreeningScript[];
@@ -20,6 +21,7 @@ function ScriptEditor({ onSaved }: { onSaved: () => void }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [roleType, setRoleType] = useState<VacatureRol | ''>('');
   const [questions, setQuestions] = useState<QuestionDraft[]>([
     { question: '', placeholder: '', required: false },
   ]);
@@ -48,7 +50,7 @@ function ScriptEditor({ onSaved }: { onSaved: () => void }) {
     const res = await fetch('/api/admin/screening-scripts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description, isActive, questions: validQuestions }),
+      body: JSON.stringify({ name, description, isActive, roleType: roleType || null, questions: validQuestions }),
     });
     const json = await res.json();
     if (!res.ok) { setError(json.error ?? 'Fout bij opslaan.'); setSaving(false); return; }
@@ -78,10 +80,24 @@ function ScriptEditor({ onSaved }: { onSaved: () => void }) {
         </div>
       </div>
 
+      <div>
+        <label className="block text-xs font-medium text-[#9ca3af] mb-1">Functietype (optioneel)</label>
+        <select
+          value={roleType}
+          onChange={e => setRoleType(e.target.value as VacatureRol | '')}
+          className="w-full rounded-md border border-[#363848] bg-[#1e2028] px-3 py-1.5 text-sm text-[#e8e9ed] focus:border-[#68b0a6] focus:outline-none"
+        >
+          <option value="">— Generiek (alle rollen) —</option>
+          {(Object.entries(VACATURE_ROL_LABELS) as [VacatureRol, string][]).map(([val, label]) => (
+            <option key={val} value={val}>{label}</option>
+          ))}
+        </select>
+      </div>
+
       <label className="flex items-center gap-2 text-sm text-[#e8e9ed] cursor-pointer">
         <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)}
           className="rounded border-[#363848] bg-[#1e2028] accent-[#68b0a6]" />
-        Meteen activeren (deactiveert andere scripts)
+        Meteen activeren (deactiveert andere scripts van hetzelfde functietype)
       </label>
 
       <div className="space-y-2">
@@ -136,6 +152,7 @@ function ChecklistEditor({ onSaved }: { onSaved: () => void }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [isActive, setIsActive] = useState(true);
+  const [roleType, setRoleType] = useState<VacatureRol | ''>('');
   const [items, setItems] = useState<ItemDraft[]>([{ label: '', description: '' }]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -156,7 +173,7 @@ function ChecklistEditor({ onSaved }: { onSaved: () => void }) {
     const res = await fetch('/api/admin/interview-checklists', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description, isActive, items: validItems }),
+      body: JSON.stringify({ name, description, isActive, roleType: roleType || null, items: validItems }),
     });
     const json = await res.json();
     if (!res.ok) { setError(json.error ?? 'Fout bij opslaan.'); setSaving(false); return; }
@@ -182,10 +199,24 @@ function ChecklistEditor({ onSaved }: { onSaved: () => void }) {
         </div>
       </div>
 
+      <div>
+        <label className="block text-xs font-medium text-[#9ca3af] mb-1">Functietype (optioneel)</label>
+        <select
+          value={roleType}
+          onChange={e => setRoleType(e.target.value as VacatureRol | '')}
+          className="w-full rounded-md border border-[#363848] bg-[#1e2028] px-3 py-1.5 text-sm text-[#e8e9ed] focus:border-[#68b0a6] focus:outline-none"
+        >
+          <option value="">— Generiek (alle rollen) —</option>
+          {(Object.entries(VACATURE_ROL_LABELS) as [VacatureRol, string][]).map(([val, label]) => (
+            <option key={val} value={val}>{label}</option>
+          ))}
+        </select>
+      </div>
+
       <label className="flex items-center gap-2 text-sm text-[#e8e9ed] cursor-pointer">
         <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)}
           className="rounded border-[#363848] bg-[#1e2028] accent-[#68b0a6]" />
-        Meteen activeren (deactiveert andere checklists)
+        Meteen activeren (deactiveert andere checklists van hetzelfde functietype)
       </label>
 
       <div className="space-y-2">
@@ -310,11 +341,16 @@ export function TemplatesClient({ screeningScripts, interviewChecklists }: Props
                 <div key={script.id} className="rounded-xl border border-[#363848] bg-[#252732] p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-sm font-semibold text-white">{script.name}</h3>
                         {script.isActive && (
                           <span className="rounded-full bg-[#68b0a6]/10 px-2 py-0.5 text-[10px] font-medium text-[#68b0a6]">
                             Actief
+                          </span>
+                        )}
+                        {script.roleType && (
+                          <span className="rounded-full bg-[#363848] px-2 py-0.5 text-[10px] text-[#9ca3af]">
+                            {VACATURE_ROL_LABELS[script.roleType]}
                           </span>
                         )}
                       </div>
@@ -380,11 +416,16 @@ export function TemplatesClient({ screeningScripts, interviewChecklists }: Props
                 <div key={checklist.id} className="rounded-xl border border-[#363848] bg-[#252732] p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-sm font-semibold text-white">{checklist.name}</h3>
                         {checklist.isActive && (
                           <span className="rounded-full bg-purple-500/10 px-2 py-0.5 text-[10px] font-medium text-purple-400">
                             Actief
+                          </span>
+                        )}
+                        {checklist.roleType && (
+                          <span className="rounded-full bg-[#363848] px-2 py-0.5 text-[10px] text-[#9ca3af]">
+                            {VACATURE_ROL_LABELS[checklist.roleType]}
                           </span>
                         )}
                       </div>

@@ -112,6 +112,7 @@ export async function getCandidate(id: string): Promise<Candidate | null> {
       consentGiven, consentDate, consentExpiresAt, leadSource, leadCampaignId,
       assignedToId, prescreeningToken, prescreeningExpiresAt, createdAt, updatedAt,
       assignedTo:User!Candidate_assignedToId_fkey (id, name),
+      jobOpening:JobOpening!Candidate_jobOpeningId_fkey (id, title, slug, roleType),
       candidateNotes:CandidateNote (
         id, candidateId, content, authorId, createdAt,
         author:User!CandidateNote_authorId_fkey (id, name, role),
@@ -319,27 +320,45 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
 // ─── Screening Scripts ────────────────────────────────────────────────────────
 
-export async function getActiveScreeningScript(): Promise<ScreeningScript | null> {
+export async function getActiveScreeningScript(roleType?: string | null): Promise<ScreeningScript | null> {
+  const SELECT = `
+    id, name, description, isActive, roleType, createdById, createdAt, updatedAt,
+    questions:ScreeningQuestion (
+      id, scriptId, question, placeholder, required, order
+    )
+  `;
+
+  // 1. Try role-specific script first
+  if (roleType) {
+    const { data: roleData } = await supabaseAdmin
+      .from('ScreeningScript')
+      .select(SELECT)
+      .eq('isActive', true)
+      .eq('roleType', roleType)
+      .order('createdAt', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (roleData) {
+      const script = roleData as unknown as ScreeningScript;
+      if (script?.questions) script.questions = [...script.questions].sort((a, b) => a.order - b.order);
+      return script;
+    }
+  }
+
+  // 2. Fallback: generic script (no roleType)
   const { data, error } = await supabaseAdmin
     .from('ScreeningScript')
-    .select(
-      `
-      id, name, description, isActive, createdById, createdAt, updatedAt,
-      questions:ScreeningQuestion (
-        id, scriptId, question, placeholder, required, order
-      )
-    `
-    )
+    .select(SELECT)
     .eq('isActive', true)
+    .is('roleType', null)
     .order('createdAt', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  if (error) return null;
+  if (error || !data) return null;
   const script = data as unknown as ScreeningScript;
-  if (script?.questions) {
-    script.questions = [...script.questions].sort((a, b) => a.order - b.order);
-  }
+  if (script?.questions) script.questions = [...script.questions].sort((a, b) => a.order - b.order);
   return script;
 }
 
@@ -388,27 +407,45 @@ export async function getScreeningAnswers(candidateId: string): Promise<Screenin
 
 // ─── Interview Checklists ─────────────────────────────────────────────────────
 
-export async function getActiveInterviewChecklist(): Promise<InterviewChecklist | null> {
+export async function getActiveInterviewChecklist(roleType?: string | null): Promise<InterviewChecklist | null> {
+  const SELECT = `
+    id, name, description, isActive, roleType, createdById, createdAt, updatedAt,
+    items:InterviewChecklistItem (
+      id, checklistId, label, description, order
+    )
+  `;
+
+  // 1. Try role-specific checklist first
+  if (roleType) {
+    const { data: roleData } = await supabaseAdmin
+      .from('InterviewChecklist')
+      .select(SELECT)
+      .eq('isActive', true)
+      .eq('roleType', roleType)
+      .order('createdAt', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (roleData) {
+      const checklist = roleData as unknown as InterviewChecklist;
+      if (checklist?.items) checklist.items = [...checklist.items].sort((a, b) => a.order - b.order);
+      return checklist;
+    }
+  }
+
+  // 2. Fallback: generic checklist (no roleType)
   const { data, error } = await supabaseAdmin
     .from('InterviewChecklist')
-    .select(
-      `
-      id, name, description, isActive, createdById, createdAt, updatedAt,
-      items:InterviewChecklistItem (
-        id, checklistId, label, description, order
-      )
-    `
-    )
+    .select(SELECT)
     .eq('isActive', true)
+    .is('roleType', null)
     .order('createdAt', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  if (error) return null;
+  if (error || !data) return null;
   const checklist = data as unknown as InterviewChecklist;
-  if (checklist?.items) {
-    checklist.items = [...checklist.items].sort((a, b) => a.order - b.order);
-  }
+  if (checklist?.items) checklist.items = [...checklist.items].sort((a, b) => a.order - b.order);
   return checklist;
 }
 
@@ -452,4 +489,90 @@ export async function getChecklistResults(candidateId: string): Promise<Intervie
     return [];
   }
   return (data as unknown as InterviewChecklistResult[]) ?? [];
+}
+
+// ─── Recruitment summary ──────────────────────────────────────────────────────
+
+export interface RecruitmentSummary {
+  totalActive: number;
+  staleCount: number;
+  interviewsThisWeek: number;
+  pipelineCounts: Record<string, number>;
+}
+
+export async function getRecruitmentSummary(): Promise<RecruitmentSummary> {
+  const activeStatuses = ['NEW_LEAD', 'PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK'];
+
+  const { data: candidates } = await supabaseAdmin
+    .from('Candidate')
+    .select('status, stageUpdatedAt, updatedAt')
+    .in('status', activeStatuses);
+
+  const all = candidates ?? [];
+  const totalActive = all.length;
+
+  // Pipeline counts per stage
+  const pipelineCounts: Record<string, number> = {};
+  for (const s of activeStatuses) {
+    pipelineCounts[s] = all.filter((c: Record<string, unknown>) => c.status === s).length;
+  }
+
+  // Stale: fetch thresholds from AppSetting
+  const stageKeys = [
+    'STAGE_ALERT_NEW_LEAD',
+    'STAGE_ALERT_PRE_SCREENING',
+    'STAGE_ALERT_SCREENING_DONE',
+    'STAGE_ALERT_INTERVIEW',
+    'STAGE_ALERT_RESERVE_BANK',
+  ];
+  const stageStatusMap: Record<string, string> = {
+    STAGE_ALERT_NEW_LEAD: 'NEW_LEAD',
+    STAGE_ALERT_PRE_SCREENING: 'PRE_SCREENING',
+    STAGE_ALERT_SCREENING_DONE: 'SCREENING_DONE',
+    STAGE_ALERT_INTERVIEW: 'INTERVIEW',
+    STAGE_ALERT_RESERVE_BANK: 'RESERVE_BANK',
+  };
+  const defaults: Record<string, number> = {
+    STAGE_ALERT_NEW_LEAD: 3,
+    STAGE_ALERT_PRE_SCREENING: 5,
+    STAGE_ALERT_SCREENING_DONE: 3,
+    STAGE_ALERT_INTERVIEW: 7,
+    STAGE_ALERT_RESERVE_BANK: 30,
+  };
+
+  const { data: settingRows } = await supabaseAdmin
+    .from('AppSetting')
+    .select('key, value')
+    .in('key', stageKeys);
+
+  const thresholds: Record<string, number> = { ...defaults };
+  for (const row of settingRows ?? []) {
+    thresholds[row.key] = Number(row.value) || 0;
+  }
+
+  const now = Date.now();
+  let staleCount = 0;
+  for (const key of stageKeys) {
+    const days = thresholds[key];
+    if (!days) continue;
+    const status = stageStatusMap[key];
+    const cutoffMs = days * 24 * 60 * 60 * 1000;
+    staleCount += all.filter((c: Record<string, unknown>) => {
+      if (c.status !== status) return false;
+      const since = (c.stageUpdatedAt as string) ?? (c.updatedAt as string);
+      return since && now - new Date(since).getTime() > cutoffMs;
+    }).length;
+  }
+
+  // Interviews this week
+  const weekStart = new Date();
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  weekStart.setHours(0, 0, 0, 0);
+  const interviewsThisWeek = all.filter((c: Record<string, unknown>) => {
+    if (c.status !== 'INTERVIEW') return false;
+    const since = (c.stageUpdatedAt as string) ?? (c.updatedAt as string);
+    return since && new Date(since) >= weekStart;
+  }).length;
+
+  return { totalActive, staleCount, interviewsThisWeek, pipelineCounts };
 }
