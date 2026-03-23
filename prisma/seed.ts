@@ -280,10 +280,11 @@ async function main() {
       description: "Als installatiemonteur bij Zwaluw Comfortsanitair plaats jij badkamer- en doucheaanpassingen bij senioren thuis. Je werkt zelfstandig, rijdt in een bedrijfsbus en hebt dagelijks contact met klanten.",
       requirements: "MBO-niveau in technische richting, rijbewijs B, klantgericht, zelfstandig, fysiek in orde",
       location: "Regio Rotterdam / Den Haag",
-      hoursPerWeek: 40,
+      hoursPerWeek: "40",
       salaryRange: "€2.400 – €3.000",
       roleType: "MONTEUR",
       isActive: true,
+      createdById: uArnout,
     },
     {
       id: "jo-adviseur",
@@ -292,10 +293,11 @@ async function main() {
       description: "Als sales adviseur bezoek jij senioren thuis voor een vrijblijvend adviesgesprek. Je inventariseert de wensen en maakt een passend aanbod. Geen koude acquisitie — alle afspraken worden centraal ingepland.",
       requirements: "Commerciële ervaring, rijbewijs B, communicatief sterk, empathisch, resultaatgericht",
       location: "Regio Rotterdam / Den Haag / Delft",
-      hoursPerWeek: 40,
+      hoursPerWeek: "40",
       salaryRange: "€2.600 – €3.200 + provisie",
       roleType: "ADVISEUR",
       isActive: true,
+      createdById: uArnout,
     },
     {
       id: "jo-binnendienst-technisch",
@@ -304,10 +306,11 @@ async function main() {
       description: "Jij bent de schakel tussen monteurs in het veld en de planning. Je verwerkt werkbonnen, beheert de monteurscommunicatie en signaleert knelpunten proactief.",
       requirements: "Technische achtergrond of affiniteit, ervaring met werkbonbeheer of ERP, gestructureerd, goed in prioriteren",
       location: "Rotterdam",
-      hoursPerWeek: 40,
+      hoursPerWeek: "40",
       salaryRange: "€2.400 – €2.900",
       roleType: "BINNENDIENST_TECHNISCH",
       isActive: true,
+      createdById: uArnout,
     },
     {
       id: "jo-callcenter",
@@ -316,10 +319,11 @@ async function main() {
       description: "Als callcenter medewerker ben jij het eerste aanspreekpunt voor onze klanten. Je plant afspraken in, beantwoordt vragen en lost klachten op — altijd vriendelijk en oplossingsgedreven.",
       requirements: "Ervaring in klantcontact of callcenter, CRM-kennis is een pré, stressbestendig, goede communicatie",
       location: "Rotterdam",
-      hoursPerWeek: 24,
+      hoursPerWeek: "24",
       salaryRange: "€1.800 – €2.200",
       roleType: "BINNENDIENST_CALLCENTER",
       isActive: true,
+      createdById: uArnout,
     },
     {
       id: "jo-warehouse",
@@ -328,10 +332,11 @@ async function main() {
       description: "Jij zorgt dat alle monteurs elke dag met de juiste materialen op pad gaan. Je beheert de voorraad, verwerkt inkomende leveringen en bereidt de dagelijkse materiaalsets voor.",
       requirements: "Logistieke ervaring, bij voorkeur heftruckcertificaat, nauwkeurig, fysiek belastbaar, teamspeler",
       location: "Rotterdam",
-      hoursPerWeek: 40,
+      hoursPerWeek: "40",
       salaryRange: "€2.100 – €2.600",
       roleType: "WAREHOUSE",
       isActive: true,
+      createdById: uArnout,
     },
     {
       id: "jo-backoffice",
@@ -340,10 +345,11 @@ async function main() {
       description: "Als backoffice medewerker verwerk jij offertes, facturen en garantieclaims. Je werkt nauw samen met planning en sales en zorgt dat de administratie altijd op orde is.",
       requirements: "MBO+ administratieve opleiding, ervaring met financiële administratie, Excel, zelfstandig, nauwkeurig",
       location: "Rotterdam",
-      hoursPerWeek: 32,
+      hoursPerWeek: "32",
       salaryRange: "€2.200 – €2.700",
       roleType: "BACKOFFICE",
       isActive: true,
+      createdById: uArnout,
     },
   ];
   for (const jo of jobOpenings) {
@@ -455,16 +461,16 @@ async function main() {
   ];
 
   for (const s of scriptDefs) {
-    const { data: script, error } = await supabase
+    const { error } = await supabase
       .from("ScreeningScript")
       .upsert(
         { id: s.id, name: s.name, description: s.description, roleType: s.roleType, isActive: true, createdById: s.createdById },
         { onConflict: "id", ignoreDuplicates: true }
-      )
-      .select("id")
-      .single();
-    if (error) { console.error(`  ✗ Script ${s.id}: ${error.message}`); continue; }
-    const scriptId = script?.id ?? s.id;
+      );
+    if (error && !error.message.includes("duplicate") && !error.message.includes("unique")) {
+      console.error(`  ✗ Script ${s.id}: ${error.message}`); continue;
+    }
+    const scriptId = s.id;
     const questionRows = s.questions.map((q, i) => ({
       scriptId,
       question: q.question,
@@ -600,16 +606,16 @@ async function main() {
   ];
 
   for (const cl of checklistDefs) {
-    const { data: checklist, error } = await supabase
+    const { error } = await supabase
       .from("InterviewChecklist")
       .upsert(
         { id: cl.id, name: cl.name, description: cl.description, roleType: cl.roleType, isActive: true, createdById: cl.createdById },
         { onConflict: "id", ignoreDuplicates: true }
-      )
-      .select("id")
-      .single();
-    if (error) { console.error(`  ✗ Checklist ${cl.id}: ${error.message}`); continue; }
-    const checklistId = checklist?.id ?? cl.id;
+      );
+    if (error && !error.message.includes("duplicate") && !error.message.includes("unique")) {
+      console.error(`  ✗ Checklist ${cl.id}: ${error.message}`); continue;
+    }
+    const checklistId = cl.id;
     const itemRows = cl.items.map((item, i) => ({
       checklistId,
       label: item.label,

@@ -363,26 +363,28 @@ export async function getActiveScreeningScript(roleType?: string | null): Promis
 }
 
 export async function getAllScreeningScripts(): Promise<ScreeningScript[]> {
-  const { data, error } = await supabaseAdmin
+  const { data: scripts, error } = await supabaseAdmin
     .from('ScreeningScript')
-    .select(
-      `
-      id, name, description, isActive, createdById, createdAt, updatedAt,
-      createdBy:User!ScreeningScript_createdById_fkey (id, name),
-      questions:ScreeningQuestion (
-        id, scriptId, question, placeholder, required, order
-      )
-    `
-    )
+    .select('id, name, description, isActive, roleType, createdById, createdAt, updatedAt')
     .order('createdAt', { ascending: false });
 
   if (error) {
     console.error('getAllScreeningScripts error:', error.message);
     return [];
   }
-  return ((data as unknown as ScreeningScript[]) ?? []).map(s => ({
+  if (!scripts?.length) return [];
+
+  const ids = scripts.map(s => s.id);
+  const { data: questions } = await supabaseAdmin
+    .from('ScreeningQuestion')
+    .select('id, scriptId, question, placeholder, required, order')
+    .in('scriptId', ids);
+
+  return (scripts as unknown as ScreeningScript[]).map(s => ({
     ...s,
-    questions: (s.questions ?? []).sort((a, b) => a.order - b.order),
+    questions: ((questions ?? []) as unknown as { scriptId: string; order: number }[])
+      .filter(q => q.scriptId === s.id)
+      .sort((a, b) => a.order - b.order) as ScreeningScript['questions'],
   }));
 }
 
@@ -450,26 +452,28 @@ export async function getActiveInterviewChecklist(roleType?: string | null): Pro
 }
 
 export async function getAllInterviewChecklists(): Promise<InterviewChecklist[]> {
-  const { data, error } = await supabaseAdmin
+  const { data: checklists, error } = await supabaseAdmin
     .from('InterviewChecklist')
-    .select(
-      `
-      id, name, description, isActive, createdById, createdAt, updatedAt,
-      createdBy:User!InterviewChecklist_createdById_fkey (id, name),
-      items:InterviewChecklistItem (
-        id, checklistId, label, description, order
-      )
-    `
-    )
+    .select('id, name, description, isActive, roleType, createdById, createdAt, updatedAt')
     .order('createdAt', { ascending: false });
 
   if (error) {
     console.error('getAllInterviewChecklists error:', error.message);
     return [];
   }
-  return ((data as unknown as InterviewChecklist[]) ?? []).map(c => ({
+  if (!checklists?.length) return [];
+
+  const ids = checklists.map(c => c.id);
+  const { data: items } = await supabaseAdmin
+    .from('InterviewChecklistItem')
+    .select('id, checklistId, label, description, order')
+    .in('checklistId', ids);
+
+  return (checklists as unknown as InterviewChecklist[]).map(c => ({
     ...c,
-    items: (c.items ?? []).sort((a, b) => a.order - b.order),
+    items: ((items ?? []) as unknown as { checklistId: string; order: number }[])
+      .filter(i => i.checklistId === c.id)
+      .sort((a, b) => a.order - b.order) as InterviewChecklist['items'],
   }));
 }
 

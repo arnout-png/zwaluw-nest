@@ -7,23 +7,26 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
   if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
 
-  const { data, error } = await supabaseAdmin
+  const { data: checklists, error } = await supabaseAdmin
     .from('InterviewChecklist')
-    .select(
-      `id, name, description, isActive, roleType, createdById, createdAt, updatedAt,
-       createdBy:User!InterviewChecklist_createdById_fkey (id, name),
-       items:InterviewChecklistItem (id, checklistId, label, description, order)`
-    )
+    .select('id, name, description, isActive, roleType, createdById, createdAt, updatedAt')
     .order('createdAt', { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const checklists = (data ?? []).map((c: { items?: { order: number }[] } & Record<string, unknown>) => ({
+  const ids = (checklists ?? []).map((c: Record<string, unknown>) => c.id);
+  const { data: items } = ids.length
+    ? await supabaseAdmin.from('InterviewChecklistItem').select('id, checklistId, label, description, order').in('checklistId', ids)
+    : { data: [] };
+
+  const result = (checklists ?? []).map((c: Record<string, unknown>) => ({
     ...c,
-    items: (c.items ?? []).sort((a: { order: number }, b: { order: number }) => a.order - b.order),
+    items: ((items ?? []) as { checklistId: unknown; order: number }[])
+      .filter(i => i.checklistId === c.id)
+      .sort((a, b) => a.order - b.order),
   }));
 
-  return NextResponse.json({ data: checklists });
+  return NextResponse.json({ data: result });
 }
 
 export async function POST(request: NextRequest) {

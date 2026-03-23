@@ -7,23 +7,26 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
   if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
 
-  const { data, error } = await supabaseAdmin
+  const { data: scripts, error } = await supabaseAdmin
     .from('ScreeningScript')
-    .select(
-      `id, name, description, isActive, roleType, createdById, createdAt, updatedAt,
-       createdBy:User!ScreeningScript_createdById_fkey (id, name),
-       questions:ScreeningQuestion (id, scriptId, question, placeholder, required, order)`
-    )
+    .select('id, name, description, isActive, roleType, createdById, createdAt, updatedAt')
     .order('createdAt', { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const scripts = (data ?? []).map((s: { questions?: { order: number }[] } & Record<string, unknown>) => ({
+  const ids = (scripts ?? []).map((s: Record<string, unknown>) => s.id);
+  const { data: questions } = ids.length
+    ? await supabaseAdmin.from('ScreeningQuestion').select('id, scriptId, question, placeholder, required, order').in('scriptId', ids)
+    : { data: [] };
+
+  const result = (scripts ?? []).map((s: Record<string, unknown>) => ({
     ...s,
-    questions: (s.questions ?? []).sort((a: { order: number }, b: { order: number }) => a.order - b.order),
+    questions: ((questions ?? []) as { scriptId: unknown; order: number }[])
+      .filter(q => q.scriptId === s.id)
+      .sort((a, b) => a.order - b.order),
   }));
 
-  return NextResponse.json({ data: scripts });
+  return NextResponse.json({ data: result });
 }
 
 export async function POST(request: NextRequest) {

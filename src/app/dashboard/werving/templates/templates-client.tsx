@@ -358,7 +358,7 @@ export function TemplatesClient({ screeningScripts, interviewChecklists }: Props
                         <p className="text-xs text-[#9ca3af] mt-0.5">{script.description}</p>
                       )}
                       <p className="text-xs text-[#9ca3af] mt-1">
-                        {script.questions?.length ?? 0} vragen · Aangemaakt door {script.createdBy?.name ?? '—'}
+                        {script.questions?.length ?? 0} vragen
                       </p>
                     </div>
                     <button
@@ -433,7 +433,7 @@ export function TemplatesClient({ screeningScripts, interviewChecklists }: Props
                         <p className="text-xs text-[#9ca3af] mt-0.5">{checklist.description}</p>
                       )}
                       <p className="text-xs text-[#9ca3af] mt-1">
-                        {checklist.items?.length ?? 0} punten · Aangemaakt door {checklist.createdBy?.name ?? '—'}
+                        {checklist.items?.length ?? 0} punten
                       </p>
                     </div>
                     <button
