@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
-import { getDashboardStats, getContractsExpiringSoon, getPendingLeaveRequests } from '@/lib/data';
+import { getDashboardStats, getContractsExpiringSoon, getPendingLeaveRequests, getRecruitmentSummary } from '@/lib/data';
 import { StatCard } from '@/components/dashboard/stat-card';
 
 function getGreeting() {
@@ -44,15 +44,16 @@ export default async function DashboardPage() {
   const session = await getSession();
   if (!session) redirect('/login');
 
-  const [stats, expiringContracts, pendingLeave] = await Promise.all([
-    getDashboardStats(),
-    getContractsExpiringSoon(),
-    getPendingLeaveRequests(),
-  ]);
-
   const greeting = getGreeting();
   const isAdmin = session.role === 'ADMIN';
   const isPlanner = session.role === 'PLANNER';
+
+  const [stats, expiringContracts, pendingLeave, recruitment] = await Promise.all([
+    getDashboardStats(),
+    getContractsExpiringSoon(),
+    getPendingLeaveRequests(),
+    (isAdmin || isPlanner) ? getRecruitmentSummary() : Promise.resolve(null),
+  ]);
 
   return (
     <div className="space-y-6 fade-in">
@@ -118,6 +119,61 @@ export default async function DashboardPage() {
               </svg>
             }
           />
+        </div>
+      )}
+
+      {/* Recruitment pipeline widget (admin/planner) */}
+      {recruitment && (
+        <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <svg className="h-4 w-4 text-[#68b0a6]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              </svg>
+              <h2 className="text-sm font-semibold text-white">Werving pipeline</h2>
+            </div>
+            <div className="flex items-center gap-3">
+              {recruitment.staleCount > 0 && (
+                <span className="rounded-full bg-[#f7a247]/10 px-2 py-0.5 text-xs font-medium text-[#f7a247]">
+                  {recruitment.staleCount} te lang in fase
+                </span>
+              )}
+              <Link
+                href="/dashboard/werving"
+                className="text-xs text-[#68b0a6] hover:underline"
+              >
+                Bekijk Kanban →
+              </Link>
+            </div>
+          </div>
+
+          {/* Pipeline flow */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {([
+              { key: 'NEW_LEAD', label: 'Nieuw' },
+              { key: 'PRE_SCREENING', label: 'Pre-screening' },
+              { key: 'SCREENING_DONE', label: 'Screening klaar' },
+              { key: 'INTERVIEW', label: 'Interview' },
+              { key: 'RESERVE_BANK', label: 'Reserve Bank' },
+            ] as { key: string; label: string }[]).map((stage, i, arr) => (
+              <div key={stage.key} className="flex items-center gap-2">
+                <div className="flex flex-col items-center rounded-lg bg-[#1e2028] px-3 py-2 min-w-[80px]">
+                  <span className="text-lg font-bold text-white">{recruitment.pipelineCounts[stage.key] ?? 0}</span>
+                  <span className="text-xs text-[#9ca3af] mt-0.5 text-center leading-tight">{stage.label}</span>
+                </div>
+                {i < arr.length - 1 && (
+                  <span className="text-[#363848] text-sm">→</span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-3 flex gap-4 text-xs text-[#9ca3af]">
+            <span><span className="text-white font-medium">{recruitment.totalActive}</span> actief totaal</span>
+            {recruitment.interviewsThisWeek > 0 && (
+              <span><span className="text-[#68b0a6] font-medium">{recruitment.interviewsThisWeek}</span> interviews deze week</span>
+            )}
+          </div>
         </div>
       )}
 

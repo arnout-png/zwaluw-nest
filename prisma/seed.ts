@@ -171,22 +171,53 @@ async function main() {
     { id: "cand-5", status: "INTERVIEW",      name: "Remon Visser",       email: "remon.visser@gmail.com",   phone: "06-55667788", age: 29, location: "Rotterdam",         currentJob: "Servicemonteur CV", livingSituation: "Samenwonend", partnerEmployment: "Ja, parttime", reasonForLeaving: "Meer doorgroeimogelijkheden", salaryExpectation: "€2.600 – €2.900", leadSource: "Facebook Ads", leadCampaignId: "fb_feb_2026", consentGiven: true, consentDate: ago(18), consentExpiresAt: from(10) },
     { id: "cand-6", status: "RESERVE_BANK",   name: "Fabian de Groot",    email: "f.degroot@outlook.com",    phone: "06-66778899", age: 33, location: "Schiedam",          currentJob: "Monteur badkamers", livingSituation: "Getrouwd", partnerEmployment: "Ja, fulltime", reasonForLeaving: "Vast dienstverband gewenst", salaryExpectation: "€2.700 – €3.100", leadSource: "Referral", consentGiven: true, consentDate: ago(30), consentExpiresAt: from(0) },
     { id: "cand-7", status: "REJECTED",       name: "Lars Bos",           email: "l.bos@gmail.com",          phone: "06-77889900", age: 22, location: "Capelle a/d IJssel",currentJob: "Student MBO", salaryExpectation: "€2.000", leadSource: "Facebook Ads", consentGiven: true, consentDate: ago(25), consentExpiresAt: from(3) },
+
+    // ADVISEUR candidates
+    { id: "cand-8",  status: "NEW_LEAD",       name: "Thomas van Dijk",    email: "thomas.vandijk@gmail.com",   phone: "06-12345678", age: 38, location: "Utrecht",           currentJob: "Accountmanager",          salaryExpectation: "€3.000 – €3.500", leadSource: "Facebook Ads", leadCampaignId: "fb_spring_2026", consentGiven: true, consentDate: ago(1), consentExpiresAt: from(27) },
+    { id: "cand-9",  status: "PRE_SCREENING",  name: "Marloes Hendriksen", email: "m.hendriksen@hotmail.com",   phone: "06-23456789", age: 33, location: "Leiden",            currentJob: "Binnendienst verkoop",    salaryExpectation: "€2.800 – €3.200", leadSource: "Indeed",        consentGiven: true, consentDate: ago(6), consentExpiresAt: from(22) },
+    { id: "cand-10", status: "INTERVIEW",      name: "Bas Verhoeven",      email: "bas.verhoeven@outlook.com",  phone: "06-34567890", age: 41, location: "Alphen a/d Rijn",   currentJob: "Zelfstandig adviseur",   salaryExpectation: "€3.200 – €3.600", leadSource: "Indeed",        consentGiven: true, consentDate: ago(14), consentExpiresAt: from(14), livingSituation: "Getrouwd", partnerEmployment: "Ja, fulltime", reasonForLeaving: "Zoekt vast dienstverband met doorgroeiperspectief" },
+
+    // BINNENDIENST_TECHNISCH candidates
+    { id: "cand-11", status: "NEW_LEAD",       name: "Niels Bakker",       email: "n.bakker@gmail.com",         phone: "06-45678901", age: 27, location: "Gouda",             currentJob: "Administratief medewerker", salaryExpectation: "€2.300 – €2.700", leadSource: "Facebook Ads", leadCampaignId: "fb_spring_2026", consentGiven: true, consentDate: ago(2), consentExpiresAt: from(26) },
+    { id: "cand-12", status: "SCREENING_DONE", name: "Eline Smits",        email: "e.smits@hotmail.com",        phone: "06-56789012", age: 30, location: "Dordrecht",         currentJob: "Technisch planner",       salaryExpectation: "€2.500 – €2.900", leadSource: "Indeed",        consentGiven: true, consentDate: ago(11), consentExpiresAt: from(17), livingSituation: "Samenwonend", partnerEmployment: "Ja, parttime", reasonForLeaving: "Wil meer variatie in werkzaamheden" },
+
+    // BINNENDIENST_CALLCENTER candidates
+    { id: "cand-13", status: "PRE_SCREENING",  name: "Amber van den Berg", email: "amber.vdberg@gmail.com",     phone: "06-67890123", age: 25, location: "Zoetermeer",       currentJob: "Klantenservice medewerker", salaryExpectation: "€2.100 – €2.400", leadSource: "Indeed",       consentGiven: true, consentDate: ago(5), consentExpiresAt: from(23) },
+    { id: "cand-14", status: "INTERVIEW",      name: "Rick Oosterom",      email: "r.oosterom@outlook.com",     phone: "06-78901234", age: 29, location: "Den Haag",          currentJob: "Callcenter teamleider",   salaryExpectation: "€2.400 – €2.800", leadSource: "Indeed",        consentGiven: true, consentDate: ago(16), consentExpiresAt: from(12), livingSituation: "Samenwonend", partnerEmployment: "Nee", reasonForLeaving: "Op zoek naar stabielere werkuren" },
+
+    // WAREHOUSE candidates
+    { id: "cand-15", status: "NEW_LEAD",       name: "Stefan Prins",       email: "stefan.prins@gmail.com",     phone: "06-89012345", age: 24, location: "Schiedam",          currentJob: "Magazijnmedewerker",      salaryExpectation: "€2.000 – €2.300", leadSource: "Facebook Ads", leadCampaignId: "fb_spring_2026", consentGiven: true, consentDate: ago(1), consentExpiresAt: from(27) },
+    { id: "cand-16", status: "PRE_SCREENING",  name: "Danny Kuiper",       email: "d.kuiper@hotmail.com",       phone: "06-90123456", age: 31, location: "Rotterdam",         currentJob: "Logistiek medewerker",    salaryExpectation: "€2.100 – €2.500", leadSource: "Indeed",        consentGiven: true, consentDate: ago(8), consentExpiresAt: from(20) },
+
+    // BACKOFFICE candidates
+    { id: "cand-17", status: "SCREENING_DONE", name: "Chantal de Waal",    email: "c.dewaal@gmail.com",         phone: "06-01234567", age: 36, location: "Delft",             currentJob: "Financieel administrateur", salaryExpectation: "€2.600 – €3.000", leadSource: "Indeed",       consentGiven: true, consentDate: ago(9), consentExpiresAt: from(19), livingSituation: "Getrouwd", partnerEmployment: "Ja, fulltime", reasonForLeaving: "Wil werken dichter bij huis" },
+    { id: "cand-18", status: "RESERVE_BANK",   name: "Jeroen Meijer",      email: "j.meijer@outlook.com",       phone: "06-11234567", age: 44, location: "Rotterdam",         currentJob: "Backoffice coördinator",  salaryExpectation: "€2.800 – €3.200", leadSource: "Indeed",        consentGiven: true, consentDate: ago(35), consentExpiresAt: ago(7), livingSituation: "Getrouwd", partnerEmployment: "Ja, fulltime", reasonForLeaving: "Bedrijf sluit vestiging Rotterdam" },
   ];
   for (const c of candRows) {
     await supabase.from("Candidate").upsert(c, { onConflict: "id", ignoreDuplicates: true });
   }
 
   await supabase.from("InterviewScore").upsert([
-    { id: "is-remon-1", candidateId: "cand-5", technicalSkills: 4, communication: 4, cultureFit: 5, reliability: 4, motivation: 5, overallImpression: 4, notes: "Sterke kandidaat. CV-installatie ervaring. Rijbewijs B. Beschikbaar per 1 april.", recommendation: "HIRE", interviewerId: uArnout, interviewDate: ago(3) },
+    { id: "is-remon-1",  candidateId: "cand-5",  technicalSkills: 4, communication: 4, cultureFit: 5, reliability: 4, motivation: 5, overallImpression: 4, notes: "Sterke kandidaat. CV-installatie ervaring. Rijbewijs B. Beschikbaar per 1 april.", recommendation: "HIRE", interviewerId: uArnout, interviewDate: ago(3) },
+    { id: "is-bas-1",    candidateId: "cand-10", technicalSkills: 4, communication: 5, cultureFit: 4, reliability: 4, motivation: 5, overallImpression: 5, notes: "Uitstekende presentatie. Ruime buitendienst ervaring. Overtuigend in gesprek. Beschikbaar per 1 mei.", recommendation: "HIRE", interviewerId: uArnout, interviewDate: ago(5) },
+    { id: "is-rick-1",   candidateId: "cand-14", technicalSkills: 3, communication: 5, cultureFit: 4, reliability: 4, motivation: 4, overallImpression: 4, notes: "Prettig gesprek. Ervaring in callcenter omgeving. Klantgericht en helder in communicatie.", recommendation: "CONSIDER", interviewerId: uNiels, interviewDate: ago(7) },
   ], { onConflict: "id", ignoreDuplicates: true });
 
   await supabase.from("CandidateNote").upsert([
-    { id: "cn-remon-1",  candidateId: "cand-5", content: "Telefonisch contact. Enthousiast. Rijbewijs B aanwezig. Beschikbaar per 1 april.", authorId: uNiels  },
-    { id: "cn-joris-1",  candidateId: "cand-4", content: "Prescreening ontvangen. Motivatie goed. Geen directe installatieervaring maar leergierig.", authorId: uNiels  },
-    { id: "cn-fabian-1", candidateId: "cand-6", content: "Goede kandidaat maar geen vacature. In reservebank gezet. Maandelijks contact onderhouden.", authorId: uArnout },
-    { id: "cn-lars-1",   candidateId: "cand-7", content: "Te weinig werkervaring. Aangeraden MBO-4 af te ronden en opnieuw te solliciteren.", authorId: uArnout },
+    { id: "cn-remon-1",   candidateId: "cand-5",  content: "Telefonisch contact. Enthousiast. Rijbewijs B aanwezig. Beschikbaar per 1 april.", authorId: uNiels  },
+    { id: "cn-joris-1",   candidateId: "cand-4",  content: "Prescreening ontvangen. Motivatie goed. Geen directe installatieervaring maar leergierig.", authorId: uNiels  },
+    { id: "cn-fabian-1",  candidateId: "cand-6",  content: "Goede kandidaat maar geen vacature. In reservebank gezet. Maandelijks contact onderhouden.", authorId: uArnout },
+    { id: "cn-lars-1",    candidateId: "cand-7",  content: "Te weinig werkervaring. Aangeraden MBO-4 af te ronden en opnieuw te solliciteren.", authorId: uArnout },
+    { id: "cn-marloes-1", candidateId: "cand-9",  content: "Prescreening link verstuurd via e-mail. Heeft eerder ervaring bij keukenbedrijf in buitendienst.", authorId: uNiels },
+    { id: "cn-bas-1",     candidateId: "cand-10", content: "Sterk profiel. Jarenlange zelfstandige adviesrol. Wil zekerheid van vast contract. Interview ingepland.", authorId: uArnout },
+    { id: "cn-eline-1",   candidateId: "cand-12", content: "Screening afgerond. Goede kennis van planningssystemen. Technisch inzicht aanwezig.", authorId: uNiels },
+    { id: "cn-amber-1",   candidateId: "cand-13", content: "Prescreening verstuurd. Belt snel terug. Enthousiast over de vacature.", authorId: uNiels },
+    { id: "cn-rick-1",    candidateId: "cand-14", content: "Telefonisch prescreening gedaan. Heeft WFT-basis, niet direct relevant maar toont leergierigheid.", authorId: uNiels },
+    { id: "cn-danny-1",   candidateId: "cand-16", content: "Prescreening link verstuurd. Ervaring bij Wehkamp distributiecentrum. Rijbewijs B aanwezig.", authorId: uNiels },
+    { id: "cn-chantal-1", candidateId: "cand-17", content: "Screening volledig ingevuld. Accurate en gedetailleerde antwoorden. Goede kandidaat voor backoffice.", authorId: uArnout },
+    { id: "cn-jeroen-1",  candidateId: "cand-18", content: "Uitstekend profiel. Geen vacature beschikbaar. In reservebank gezet. Contact houden per kwartaal.", authorId: uArnout },
   ], { onConflict: "id", ignoreDuplicates: true });
-  console.log("  ✓ 7 candidates + scores + notes");
+  console.log("  ✓ 18 candidates + scores + notes");
 
   // ─── CUSTOMERS ──────────────────────────────────────────────────────────────
   console.log("🏠 Creating customers...");
@@ -632,18 +663,29 @@ async function main() {
   // ─── LINK CANDIDATES TO JOB OPENINGS ─────────────────────────────────────────
   console.log("🔗 Linking candidates to job openings...");
   const candidateJobLinks = [
-    { id: "cand-1", jobOpeningId: "jo-monteur" },
-    { id: "cand-2", jobOpeningId: "jo-monteur" },
-    { id: "cand-3", jobOpeningId: "jo-monteur" },
-    { id: "cand-4", jobOpeningId: "jo-monteur" },
-    { id: "cand-5", jobOpeningId: "jo-monteur" },
-    { id: "cand-6", jobOpeningId: "jo-monteur" },
-    { id: "cand-7", jobOpeningId: "jo-monteur" },
+    { id: "cand-1",  jobOpeningId: "jo-monteur" },
+    { id: "cand-2",  jobOpeningId: "jo-monteur" },
+    { id: "cand-3",  jobOpeningId: "jo-monteur" },
+    { id: "cand-4",  jobOpeningId: "jo-monteur" },
+    { id: "cand-5",  jobOpeningId: "jo-monteur" },
+    { id: "cand-6",  jobOpeningId: "jo-monteur" },
+    { id: "cand-7",  jobOpeningId: "jo-monteur" },
+    { id: "cand-8",  jobOpeningId: "jo-adviseur" },
+    { id: "cand-9",  jobOpeningId: "jo-adviseur" },
+    { id: "cand-10", jobOpeningId: "jo-adviseur" },
+    { id: "cand-11", jobOpeningId: "jo-binnendienst-technisch" },
+    { id: "cand-12", jobOpeningId: "jo-binnendienst-technisch" },
+    { id: "cand-13", jobOpeningId: "jo-callcenter" },
+    { id: "cand-14", jobOpeningId: "jo-callcenter" },
+    { id: "cand-15", jobOpeningId: "jo-warehouse" },
+    { id: "cand-16", jobOpeningId: "jo-warehouse" },
+    { id: "cand-17", jobOpeningId: "jo-backoffice" },
+    { id: "cand-18", jobOpeningId: "jo-backoffice" },
   ];
   for (const link of candidateJobLinks) {
     await supabase.from("Candidate").update({ jobOpeningId: link.jobOpeningId }).eq("id", link.id);
   }
-  console.log("  ✓ 7 candidates linked to jo-monteur");
+  console.log("  ✓ 18 candidates linked to their respective job openings");
 
   // ─── DONE ────────────────────────────────────────────────────────────────────
   console.log("\n✅ Seed completed!\n");

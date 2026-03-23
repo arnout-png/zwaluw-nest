@@ -321,3 +321,69 @@ export async function sendReviewRequestEmail(opts: {
     text: `Beste ${opts.customerName}, laat een review achter via: ${opts.reviewUrl}`,
   });
 }
+
+export async function sendInterviewInviteEmail(opts: {
+  to: string;
+  candidateName: string;
+  recruiterName?: string;
+}) {
+  const firstName = opts.candidateName.split(' ')[0];
+  const content = `
+    <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Uitnodiging gesprek — Veilig Douchen</h2>
+    <p style="color:#9ca3af;font-size:14px;margin:0 0 16px;">
+      Hallo ${firstName},<br /><br />
+      Goed nieuws! Na het beoordelen van jouw profiel nodigen we je uit voor een gesprek bij Veilig Douchen.
+      We zijn erg benieuwd naar jouw achtergrond en motivatie.<br /><br />
+      ${opts.recruiterName ? `<strong style="color:#fff;">${opts.recruiterName}</strong> neemt binnenkort contact met je op om een datum en tijdstip af te spreken.` : 'Een van onze recruiters neemt binnenkort contact met je op om een datum en tijdstip af te spreken.'}
+    </p>
+    <div style="background:#1e2028;border-radius:8px;padding:16px;margin-top:16px;">
+      <p style="color:#9ca3af;font-size:13px;margin:0;">
+        <strong style="color:#fff;">Wat kun je verwachten?</strong><br />
+        • Een kennismakingsgesprek van ongeveer 45 minuten<br />
+        • We bespreken de functie, de arbeidsvoorwaarden en jouw wensen<br />
+        • Gelegenheid om al je vragen te stellen
+      </p>
+    </div>
+    <p style="color:#9ca3af;font-size:13px;margin-top:16px;">
+      Heb je vragen? Neem gerust contact op via <a href="mailto:info@veiligdouchen.nl" style="color:#68b0a6;">info@veiligdouchen.nl</a>.
+    </p>
+  `;
+
+  return getResend().emails.send({
+    from: FROM,
+    to: opts.to,
+    subject: 'Uitnodiging gesprek — Veilig Douchen',
+    html: htmlWrapper(content, 'Uitnodiging gesprek'),
+    text: `Hallo ${firstName}, goed nieuws! Je bent uitgenodigd voor een gesprek bij Veilig Douchen. ${opts.recruiterName ?? 'Een recruiter'} neemt binnenkort contact op.`,
+  });
+}
+
+export async function sendRejectionEmail(opts: {
+  to: string;
+  candidateName: string;
+}) {
+  const firstName = opts.candidateName.split(' ')[0];
+  const content = `
+    <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Terugkoppeling sollicitatie — Veilig Douchen</h2>
+    <p style="color:#9ca3af;font-size:14px;margin:0 0 16px;">
+      Hallo ${firstName},<br /><br />
+      Bedankt voor je interesse in een functie bij Veilig Douchen en de tijd die je hebt gestoken in je sollicitatie.<br /><br />
+      Na zorgvuldige overweging hebben we besloten om je sollicitatie niet verder in behandeling te nemen.
+      Dit is een moeilijke beslissing, want we hebben veel enthousiaste kandidaten ontvangen.<br /><br />
+      We wensen je veel succes bij je zoektocht naar een passende functie.
+    </p>
+    <div style="background:#1e2028;border-radius:8px;padding:16px;margin-top:16px;">
+      <p style="color:#9ca3af;font-size:13px;margin:0;">
+        Mocht er in de toekomst een passende vacature ontstaan, dan houden we je graag in gedachten.
+      </p>
+    </div>
+  `;
+
+  return getResend().emails.send({
+    from: FROM,
+    to: opts.to,
+    subject: 'Terugkoppeling sollicitatie — Veilig Douchen',
+    html: htmlWrapper(content, 'Terugkoppeling sollicitatie'),
+    text: `Hallo ${firstName}, bedankt voor je sollicitatie bij Veilig Douchen. Na zorgvuldige overweging hebben we besloten je sollicitatie niet verder in behandeling te nemen. Veel succes.`,
+  });
+}

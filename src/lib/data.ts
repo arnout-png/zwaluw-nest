@@ -2,6 +2,8 @@ import { supabaseAdmin } from '@/lib/supabase';
 import type {
   EmployeeWithProfile,
   Candidate,
+  CandidateNote,
+  InterviewScore,
   LeaveRequest,
   Appointment,
   Contract,
@@ -80,54 +82,43 @@ export async function getCandidates(status?: string): Promise<Candidate[]> {
   let query = supabaseAdmin
     .from('Candidate')
     .select(
-      `
-      id, status, name, email, phone, age, location, salaryExpectation,
-      consentGiven, consentDate, consentExpiresAt, leadSource, leadCampaignId,
-      assignedToId, createdAt, updatedAt,
-      assignedTo:User!Candidate_assignedToId_fkey (id, name)
-    `
+      `id, status, name, email, phone, age, location, salaryExpectation,
+       consentGiven, consentDate, consentExpiresAt, leadSource, leadCampaignId,
+       assignedToId, createdAt, updatedAt`
     )
     .order('createdAt', { ascending: false });
 
-  if (status) {
-    query = query.eq('status', status);
-  }
+  if (status) query = query.eq('status', status);
 
   const { data, error } = await query;
   if (error) {
     console.error('getCandidates error:', error.message, error.code);
     return [];
   }
-  // Split name into firstName / lastName for UI compatibility
-  return ((data as unknown as Candidate[]) ?? []).map(splitCandidateName);
+
+  const candidates = (data ?? []) as unknown as Candidate[];
+
+  // Fetch assignedTo users separately (no FK constraints in public schema)
+  const assignedToIds = [...new Set(candidates.map(c => c.assignedToId).filter((id): id is string => !!id))];
+  let usersMap: Record<string, { id: string; name: string }> = {};
+  if (assignedToIds.length > 0) {
+    const { data: users } = await supabaseAdmin.from('User').select('id, name').in('id', assignedToIds);
+    if (users) usersMap = Object.fromEntries((users as { id: string; name: string }[]).map(u => [u.id, u]));
+  }
+
+  return candidates.map(c =>
+    splitCandidateName({ ...c, assignedTo: c.assignedToId ? usersMap[c.assignedToId] : undefined })
+  );
 }
 
 export async function getCandidate(id: string): Promise<Candidate | null> {
   const { data, error } = await supabaseAdmin
     .from('Candidate')
     .select(
-      `
-      id, status, name, email, phone, age, location, livingSituation,
-      partnerEmployment, currentJob, reasonForLeaving, salaryExpectation,
-      consentGiven, consentDate, consentExpiresAt, leadSource, leadCampaignId,
-      assignedToId, prescreeningToken, prescreeningExpiresAt, createdAt, updatedAt,
-      assignedTo:User!Candidate_assignedToId_fkey (id, name),
-      jobOpening:JobOpening!Candidate_jobOpeningId_fkey (id, title, slug, roleType),
-      candidateNotes:CandidateNote (
-        id, candidateId, content, authorId, createdAt,
-        author:User!CandidateNote_authorId_fkey (id, name, role),
-        mentions:CandidateNoteMention (
-          id, noteId, userId,
-          user:User!CandidateNoteMention_userId_fkey (id, name)
-        )
-      ),
-      interviewScores:InterviewScore (
-        id, candidateId, technicalSkills, communication, cultureFit,
-        reliability, motivation, overallImpression, notes, recommendation,
-        interviewerId, interviewDate, createdAt,
-        interviewer:User!InterviewScore_interviewerId_fkey (id, name, role)
-      )
-    `
+      `id, status, name, email, phone, age, location, livingSituation,
+       partnerEmployment, currentJob, reasonForLeaving, salaryExpectation,
+       consentGiven, consentDate, consentExpiresAt, leadSource, leadCampaignId,
+       assignedToId, jobOpeningId, prescreeningToken, prescreeningExpiresAt, createdAt, updatedAt`
     )
     .eq('id', id)
     .single();
@@ -136,7 +127,65 @@ export async function getCandidate(id: string): Promise<Candidate | null> {
     console.error('getCandidate error:', error.message, error.code);
     return null;
   }
-  return splitCandidateName(data as unknown as Candidate);
+
+  const candidate = data as unknown as Candidate;
+
+  // Fetch all related data separately (no FK constraints in public schema)
+  const [assignedToRes, jobOpeningRes, notesRes, scoresRes] = await Promise.all([
+    candidate.assignedToId
+      ? supabaseAdmin.from('User').select('id, name').eq('id', candidate.assignedToId).single()
+      : { data: null },
+    candidate.jobOpeningId
+      ? supabaseAdmin.from('JobOpening').select('id, title, slug, roleType').eq('id', candidate.jobOpeningId).single()
+      : { data: null },
+    supabaseAdmin.from('CandidateNote').select('id, candidateId, content, authorId, createdAt').eq('candidateId', id).order('createdAt', { ascending: true }),
+    supabaseAdmin.from('InterviewScore').select('id, candidateId, technicalSkills, communication, cultureFit, reliability, motivation, overallImpression, notes, recommendation, interviewerId, interviewDate, createdAt').eq('candidateId', id).order('createdAt', { ascending: true }),
+  ]);
+
+  const noteRows = (notesRes.data ?? []) as { id: string; candidateId: string; content: string; authorId: string; createdAt: string }[];
+  const scoreRows = (scoresRes.data ?? []) as { id: string; interviewerId: string; [key: string]: unknown }[];
+
+  // Resolve note authors and mentions
+  let notesWithAuthors: CandidateNote[] = [];
+  if (noteRows.length > 0) {
+    const authorIds = [...new Set(noteRows.map(n => n.authorId))];
+    const { data: authors } = await supabaseAdmin.from('User').select('id, name, role').in('id', authorIds);
+    const authorsMap = Object.fromEntries((authors ?? []).map((u: { id: string; name: string; role: string }) => [u.id, u]));
+
+    const noteIds = noteRows.map(n => n.id);
+    const { data: mentions } = await supabaseAdmin.from('CandidateNoteMention').select('id, noteId, userId').in('noteId', noteIds);
+    const mentionList = (mentions ?? []) as { id: string; noteId: string; userId: string }[];
+
+    const mentionUserIds = [...new Set(mentionList.map(m => m.userId))];
+    let mentionUsersMap: Record<string, { id: string; name: string }> = {};
+    if (mentionUserIds.length > 0) {
+      const { data: mUsers } = await supabaseAdmin.from('User').select('id, name').in('id', mentionUserIds);
+      if (mUsers) mentionUsersMap = Object.fromEntries((mUsers as { id: string; name: string }[]).map(u => [u.id, u]));
+    }
+
+    notesWithAuthors = noteRows.map(n => ({
+      ...n,
+      author: n.authorId ? (authorsMap[n.authorId] as CandidateNote['author']) : undefined,
+      mentions: mentionList.filter(m => m.noteId === n.id).map(m => ({ ...m, user: mentionUsersMap[m.userId] })),
+    }));
+  }
+
+  // Resolve interviewers for scores
+  let scores: InterviewScore[] = [];
+  if (scoreRows.length > 0) {
+    const interviewerIds = [...new Set(scoreRows.map(s => s.interviewerId as string))];
+    const { data: interviewers } = await supabaseAdmin.from('User').select('id, name, role').in('id', interviewerIds);
+    const interviewersMap = Object.fromEntries((interviewers ?? []).map((u: { id: string; name: string; role: string }) => [u.id, u]));
+    scores = scoreRows.map(s => ({ ...s, interviewer: s.interviewerId ? interviewersMap[s.interviewerId as string] : undefined })) as unknown as InterviewScore[];
+  }
+
+  return splitCandidateName({
+    ...candidate,
+    assignedTo: (assignedToRes.data ?? undefined) as Candidate['assignedTo'],
+    jobOpening: (jobOpeningRes.data ?? undefined) as Candidate['jobOpening'],
+    candidateNotes: notesWithAuthors,
+    interviewScores: scores,
+  });
 }
 
 // Utility: split DB `name` → UI `firstName` / `lastName`
@@ -154,44 +203,52 @@ export function splitCandidateName(c: Candidate): Candidate {
 export async function getLeaveRequests(employeeProfileId?: string): Promise<LeaveRequest[]> {
   let query = supabaseAdmin
     .from('LeaveRequest')
-    .select(
-      `
-      id, employeeProfileId, type, status, startDate, endDate,
-      totalDays, reason, approvedById, respondedAt, createdAt,
-      employeeProfile:EmployeeProfile!LeaveRequest_employeeProfileId_fkey (
-        userId,
-        user:User!EmployeeProfile_userId_fkey (id, name, email, role)
-      ),
-      approvedBy:User!LeaveRequest_approvedById_fkey (id, name)
-    `
-    )
+    .select(`id, employeeProfileId, type, status, startDate, endDate,
+             totalDays, reason, approvedById, respondedAt, createdAt`)
     .order('createdAt', { ascending: false });
 
-  if (employeeProfileId) {
-    query = query.eq('employeeProfileId', employeeProfileId);
-  }
+  if (employeeProfileId) query = query.eq('employeeProfileId', employeeProfileId);
 
   const { data, error } = await query;
   if (error) {
     console.error('getLeaveRequests error:', error.message, error.code);
     return [];
   }
-  return (data as unknown as LeaveRequest[]) ?? [];
+
+  const requests = (data ?? []) as unknown as LeaveRequest[];
+
+  // Fetch employee profiles and approvedBy users separately
+  const profileIds = [...new Set(requests.map(r => r.employeeProfileId))];
+  const approvedByIds = [...new Set(requests.map(r => r.approvedById).filter((id): id is string => !!id))];
+
+  const [profilesRes, approvedByRes] = await Promise.all([
+    supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', profileIds),
+    approvedByIds.length > 0
+      ? supabaseAdmin.from('User').select('id, name').in('id', approvedByIds)
+      : { data: [] },
+  ]);
+
+  const profileList = (profilesRes.data ?? []) as { id: string; userId: string }[];
+  const userIds = [...new Set(profileList.map(p => p.userId))];
+  const { data: usersData } = userIds.length > 0
+    ? await supabaseAdmin.from('User').select('id, name, email, role').in('id', userIds)
+    : { data: [] };
+
+  const usersMap = Object.fromEntries(((usersData ?? []) as { id: string; name: string; email: string; role: string }[]).map(u => [u.id, u]));
+  const profilesMap = Object.fromEntries(profileList.map(p => [p.id, { userId: p.userId, user: usersMap[p.userId] }]));
+  const approvedByMap = Object.fromEntries(((approvedByRes.data ?? []) as { id: string; name: string }[]).map(u => [u.id, u]));
+
+  return requests.map(r => ({
+    ...r,
+    employeeProfile: r.employeeProfileId ? profilesMap[r.employeeProfileId] : undefined,
+    approvedBy: r.approvedById ? approvedByMap[r.approvedById] : undefined,
+  })) as unknown as LeaveRequest[];
 }
 
 export async function getPendingLeaveRequests(): Promise<LeaveRequest[]> {
   const { data, error } = await supabaseAdmin
     .from('LeaveRequest')
-    .select(
-      `
-      id, employeeProfileId, type, status, startDate, endDate,
-      totalDays, reason, createdAt,
-      employeeProfile:EmployeeProfile!LeaveRequest_employeeProfileId_fkey (
-        userId,
-        user:User!EmployeeProfile_userId_fkey (id, name, email, role)
-      )
-    `
-    )
+    .select(`id, employeeProfileId, type, status, startDate, endDate, totalDays, reason, createdAt`)
     .eq('status', 'PENDING')
     .order('createdAt', { ascending: true });
 
@@ -199,7 +256,22 @@ export async function getPendingLeaveRequests(): Promise<LeaveRequest[]> {
     console.error('getPendingLeaveRequests error:', error.message, error.code);
     return [];
   }
-  return (data as unknown as LeaveRequest[]) ?? [];
+
+  const requests = (data ?? []) as unknown as LeaveRequest[];
+  const profileIds = [...new Set(requests.map(r => r.employeeProfileId))];
+  if (profileIds.length === 0) return requests;
+
+  const { data: profiles } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', profileIds);
+  const profileList = (profiles ?? []) as { id: string; userId: string }[];
+  const userIds = [...new Set(profileList.map(p => p.userId))];
+  const { data: usersData } = userIds.length > 0
+    ? await supabaseAdmin.from('User').select('id, name, email, role').in('id', userIds)
+    : { data: [] };
+
+  const usersMap = Object.fromEntries(((usersData ?? []) as { id: string; name: string; email: string; role: string }[]).map(u => [u.id, u]));
+  const profilesMap = Object.fromEntries(profileList.map(p => [p.id, { userId: p.userId, user: usersMap[p.userId] }]));
+
+  return requests.map(r => ({ ...r, employeeProfile: r.employeeProfileId ? profilesMap[r.employeeProfileId] : undefined })) as unknown as LeaveRequest[];
 }
 
 // ─── Appointments ─────────────────────────────────────────────────────────────
@@ -210,17 +282,8 @@ export async function getAppointments(
 ): Promise<Appointment[]> {
   let query = supabaseAdmin
     .from('Appointment')
-    .select(
-      `
-      id, employeeProfileId, customerId, title, description, date,
-      startTime, endTime, location, status, saleValue, createdAt, updatedAt,
-      customer:Customer (id, name, phone, address, city),
-      employeeProfile:EmployeeProfile!Appointment_employeeProfileId_fkey (
-        id, userId,
-        user:User!EmployeeProfile_userId_fkey (id, name, role)
-      )
-    `
-    )
+    .select(`id, employeeProfileId, customerId, title, description, date,
+             startTime, endTime, location, status, saleValue, createdAt, updatedAt`)
     .order('startTime');
 
   if (date) {
@@ -258,17 +321,8 @@ export async function getContractsExpiringSoon(): Promise<ContractWithEmployee[]
 
   const { data, error } = await supabaseAdmin
     .from('Contract')
-    .select(
-      `
-      id, employeeProfileId, contractType, startDate, endDate,
-      probationEndDate, contractSequence, hoursPerWeek, salaryGross,
-      status, createdAt,
-      employeeProfile:EmployeeProfile!Contract_employeeProfileId_fkey (
-        userId,
-        user:User!EmployeeProfile_userId_fkey (id, name)
-      )
-    `
-    )
+    .select(`id, employeeProfileId, contractType, startDate, endDate,
+             probationEndDate, contractSequence, hoursPerWeek, salaryGross, status, createdAt`)
     .eq('status', 'ACTIVE')
     .not('endDate', 'is', null)
     .gte('endDate', todayStr)
@@ -279,7 +333,22 @@ export async function getContractsExpiringSoon(): Promise<ContractWithEmployee[]
     console.error('getContractsExpiringSoon error:', error.message, error.code);
     return [];
   }
-  return (data as unknown as ContractWithEmployee[]) ?? [];
+
+  const contracts = (data ?? []) as unknown as ContractWithEmployee[];
+  const profileIds = [...new Set(contracts.map(c => c.employeeProfileId))];
+  if (profileIds.length === 0) return contracts;
+
+  const { data: profiles } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', profileIds);
+  const profileList = (profiles ?? []) as { id: string; userId: string }[];
+  const userIds = [...new Set(profileList.map(p => p.userId))];
+  const { data: usersData } = userIds.length > 0
+    ? await supabaseAdmin.from('User').select('id, name').in('id', userIds)
+    : { data: [] };
+
+  const usersMap = Object.fromEntries(((usersData ?? []) as { id: string; name: string }[]).map(u => [u.id, u]));
+  const profilesMap = Object.fromEntries(profileList.map(p => [p.id, { userId: p.userId, user: usersMap[p.userId] }]));
+
+  return contracts.map(c => ({ ...c, employeeProfile: c.employeeProfileId ? profilesMap[c.employeeProfileId] : undefined }));
 }
 
 // ─── Dashboard stats ──────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ScreeningScript, InterviewChecklist, VacatureRol } from '@/types';
 import { VACATURE_ROL_LABELS } from '@/types';
@@ -17,16 +17,19 @@ type Tab = 'screening' | 'checklist';
 interface QuestionDraft { question: string; placeholder: string; required: boolean }
 interface ItemDraft { label: string; description: string }
 
-function ScriptEditor({ onSaved }: { onSaved: () => void }) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [isActive, setIsActive] = useState(true);
-  const [roleType, setRoleType] = useState<VacatureRol | ''>('');
-  const [questions, setQuestions] = useState<QuestionDraft[]>([
-    { question: '', placeholder: '', required: false },
-  ]);
+function ScriptEditor({ onSaved, initialScript }: { onSaved: () => void; initialScript?: ScreeningScript }) {
+  const [name, setName] = useState(initialScript?.name ?? '');
+  const [description, setDescription] = useState(initialScript?.description ?? '');
+  const [isActive, setIsActive] = useState(initialScript?.isActive ?? true);
+  const [roleType, setRoleType] = useState<VacatureRol | ''>(initialScript?.roleType ?? '');
+  const [questions, setQuestions] = useState<QuestionDraft[]>(
+    initialScript?.questions?.length
+      ? initialScript.questions.map(q => ({ question: q.question, placeholder: q.placeholder ?? '', required: q.required }))
+      : [{ question: '', placeholder: '', required: false }]
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const isEditing = !!initialScript;
 
   function addQuestion() {
     setQuestions(prev => [...prev, { question: '', placeholder: '', required: false }]);
@@ -47,8 +50,9 @@ function ScriptEditor({ onSaved }: { onSaved: () => void }) {
     if (!validQuestions.length) { setError('Voeg minimaal één vraag toe.'); return; }
 
     setSaving(true); setError('');
-    const res = await fetch('/api/admin/screening-scripts', {
-      method: 'POST',
+    const url = isEditing ? `/api/admin/screening-scripts/${initialScript.id}` : '/api/admin/screening-scripts';
+    const res = await fetch(url, {
+      method: isEditing ? 'PATCH' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, description, isActive, roleType: roleType || null, questions: validQuestions }),
     });
@@ -58,8 +62,8 @@ function ScriptEditor({ onSaved }: { onSaved: () => void }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-[#363848] bg-[#252732] p-5">
-      <h3 className="text-sm font-semibold text-white">Nieuw pre-screening script</h3>
+    <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-[#68b0a6]/30 bg-[#252732] p-5">
+      <h3 className="text-sm font-semibold text-white">{isEditing ? `Script bewerken — ${initialScript.name}` : 'Nieuw pre-screening script'}</h3>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
@@ -140,7 +144,7 @@ function ScriptEditor({ onSaved }: { onSaved: () => void }) {
 
       <button type="submit" disabled={saving}
         className="rounded-lg bg-[#68b0a6] px-4 py-2 text-xs font-semibold text-white hover:bg-[#7ec4ba] disabled:opacity-40 transition-colors">
-        {saving ? 'Opslaan…' : 'Script opslaan'}
+        {saving ? 'Opslaan…' : isEditing ? 'Wijzigingen opslaan' : 'Script opslaan'}
       </button>
     </form>
   );
@@ -148,14 +152,19 @@ function ScriptEditor({ onSaved }: { onSaved: () => void }) {
 
 // ─── Checklist editor ─────────────────────────────────────────────────────────
 
-function ChecklistEditor({ onSaved }: { onSaved: () => void }) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [isActive, setIsActive] = useState(true);
-  const [roleType, setRoleType] = useState<VacatureRol | ''>('');
-  const [items, setItems] = useState<ItemDraft[]>([{ label: '', description: '' }]);
+function ChecklistEditor({ onSaved, initialChecklist }: { onSaved: () => void; initialChecklist?: InterviewChecklist }) {
+  const [name, setName] = useState(initialChecklist?.name ?? '');
+  const [description, setDescription] = useState(initialChecklist?.description ?? '');
+  const [isActive, setIsActive] = useState(initialChecklist?.isActive ?? true);
+  const [roleType, setRoleType] = useState<VacatureRol | ''>(initialChecklist?.roleType ?? '');
+  const [items, setItems] = useState<ItemDraft[]>(
+    initialChecklist?.items?.length
+      ? initialChecklist.items.map(i => ({ label: i.label, description: i.description ?? '' }))
+      : [{ label: '', description: '' }]
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const isEditing = !!initialChecklist;
 
   function addItem() { setItems(prev => [...prev, { label: '', description: '' }]); }
   function removeItem(i: number) { setItems(prev => prev.filter((_, idx) => idx !== i)); }
@@ -170,8 +179,9 @@ function ChecklistEditor({ onSaved }: { onSaved: () => void }) {
     if (!validItems.length) { setError('Voeg minimaal één punt toe.'); return; }
 
     setSaving(true); setError('');
-    const res = await fetch('/api/admin/interview-checklists', {
-      method: 'POST',
+    const url = isEditing ? `/api/admin/interview-checklists/${initialChecklist.id}` : '/api/admin/interview-checklists';
+    const res = await fetch(url, {
+      method: isEditing ? 'PATCH' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, description, isActive, roleType: roleType || null, items: validItems }),
     });
@@ -181,8 +191,8 @@ function ChecklistEditor({ onSaved }: { onSaved: () => void }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-[#363848] bg-[#252732] p-5">
-      <h3 className="text-sm font-semibold text-white">Nieuwe interview checklist</h3>
+    <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-purple-500/30 bg-[#252732] p-5">
+      <h3 className="text-sm font-semibold text-white">{isEditing ? `Checklist bewerken — ${initialChecklist.name}` : 'Nieuwe interview checklist'}</h3>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
@@ -247,7 +257,7 @@ function ChecklistEditor({ onSaved }: { onSaved: () => void }) {
 
       <button type="submit" disabled={saving}
         className="rounded-lg bg-[#68b0a6] px-4 py-2 text-xs font-semibold text-white hover:bg-[#7ec4ba] disabled:opacity-40 transition-colors">
-        {saving ? 'Opslaan…' : 'Checklist opslaan'}
+        {saving ? 'Opslaan…' : isEditing ? 'Wijzigingen opslaan' : 'Checklist opslaan'}
       </button>
     </form>
   );
@@ -259,11 +269,15 @@ export function TemplatesClient({ screeningScripts, interviewChecklists }: Props
   const [activeTab, setActiveTab] = useState<Tab>('screening');
   const [showNewScript, setShowNewScript] = useState(false);
   const [showNewChecklist, setShowNewChecklist] = useState(false);
+  const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
+  const [editingChecklistId, setEditingChecklistId] = useState<string | null>(null);
   const router = useRouter();
 
   const handleSaved = () => {
     setShowNewScript(false);
     setShowNewChecklist(false);
+    setEditingScriptId(null);
+    setEditingChecklistId(null);
     router.refresh();
   };
 
@@ -338,7 +352,8 @@ export function TemplatesClient({ screeningScripts, interviewChecklists }: Props
           ) : (
             <div className="space-y-3">
               {screeningScripts.map(script => (
-                <div key={script.id} className="rounded-xl border border-[#363848] bg-[#252732] p-4">
+                <React.Fragment key={script.id}>
+                <div className="rounded-xl border border-[#363848] bg-[#252732] p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
@@ -361,20 +376,28 @@ export function TemplatesClient({ screeningScripts, interviewChecklists }: Props
                         {script.questions?.length ?? 0} vragen
                       </p>
                     </div>
-                    <button
-                      onClick={() => toggleScriptActive(script.id, !script.isActive)}
-                      className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                        script.isActive
-                          ? 'bg-[#363848] text-[#9ca3af] hover:text-white'
-                          : 'bg-[#68b0a6]/10 text-[#68b0a6] hover:bg-[#68b0a6]/20'
-                      }`}
-                    >
-                      {script.isActive ? 'Deactiveren' : 'Activeren'}
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => setEditingScriptId(editingScriptId === script.id ? null : script.id)}
+                        className="rounded-lg bg-[#363848] px-3 py-1.5 text-xs font-medium text-[#9ca3af] hover:text-white transition-colors"
+                      >
+                        {editingScriptId === script.id ? 'Annuleren' : 'Bewerken'}
+                      </button>
+                      <button
+                        onClick={() => toggleScriptActive(script.id, !script.isActive)}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                          script.isActive
+                            ? 'bg-[#363848] text-[#9ca3af] hover:text-white'
+                            : 'bg-[#68b0a6]/10 text-[#68b0a6] hover:bg-[#68b0a6]/20'
+                        }`}
+                      >
+                        {script.isActive ? 'Deactiveren' : 'Activeren'}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Questions preview */}
-                  {(script.questions?.length ?? 0) > 0 && (
+                  {editingScriptId !== script.id && (script.questions?.length ?? 0) > 0 && (
                     <ul className="mt-3 space-y-1 border-t border-[#363848] pt-3">
                       {script.questions?.map((q, i) => (
                         <li key={q.id} className="flex items-start gap-2 text-xs text-[#9ca3af]">
@@ -386,6 +409,14 @@ export function TemplatesClient({ screeningScripts, interviewChecklists }: Props
                     </ul>
                   )}
                 </div>
+
+                {/* Inline edit form */}
+                {editingScriptId === script.id && (
+                  <div className="mt-4 border-t border-[#363848] pt-4">
+                    <ScriptEditor onSaved={handleSaved} initialScript={script} />
+                  </div>
+                )}
+                </React.Fragment>
               ))}
             </div>
           )}
@@ -413,7 +444,8 @@ export function TemplatesClient({ screeningScripts, interviewChecklists }: Props
           ) : (
             <div className="space-y-3">
               {interviewChecklists.map(checklist => (
-                <div key={checklist.id} className="rounded-xl border border-[#363848] bg-[#252732] p-4">
+                <React.Fragment key={checklist.id}>
+                <div className="rounded-xl border border-[#363848] bg-[#252732] p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
@@ -436,19 +468,27 @@ export function TemplatesClient({ screeningScripts, interviewChecklists }: Props
                         {checklist.items?.length ?? 0} punten
                       </p>
                     </div>
-                    <button
-                      onClick={() => toggleChecklistActive(checklist.id, !checklist.isActive)}
-                      className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                        checklist.isActive
-                          ? 'bg-[#363848] text-[#9ca3af] hover:text-white'
-                          : 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
-                      }`}
-                    >
-                      {checklist.isActive ? 'Deactiveren' : 'Activeren'}
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => setEditingChecklistId(editingChecklistId === checklist.id ? null : checklist.id)}
+                        className="rounded-lg bg-[#363848] px-3 py-1.5 text-xs font-medium text-[#9ca3af] hover:text-white transition-colors"
+                      >
+                        {editingChecklistId === checklist.id ? 'Annuleren' : 'Bewerken'}
+                      </button>
+                      <button
+                        onClick={() => toggleChecklistActive(checklist.id, !checklist.isActive)}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                          checklist.isActive
+                            ? 'bg-[#363848] text-[#9ca3af] hover:text-white'
+                            : 'bg-purple-500/10 text-purple-400 hover:bg-purple-500/20'
+                        }`}
+                      >
+                        {checklist.isActive ? 'Deactiveren' : 'Activeren'}
+                      </button>
+                    </div>
                   </div>
 
-                  {(checklist.items?.length ?? 0) > 0 && (
+                  {editingChecklistId !== checklist.id && (checklist.items?.length ?? 0) > 0 && (
                     <ul className="mt-3 space-y-1 border-t border-[#363848] pt-3">
                       {checklist.items?.map((item, i) => (
                         <li key={item.id} className="flex items-start gap-2 text-xs text-[#9ca3af]">
@@ -462,6 +502,14 @@ export function TemplatesClient({ screeningScripts, interviewChecklists }: Props
                     </ul>
                   )}
                 </div>
+
+                {/* Inline edit form */}
+                {editingChecklistId === checklist.id && (
+                  <div className="mt-4 border-t border-[#363848] pt-4">
+                    <ChecklistEditor onSaved={handleSaved} initialChecklist={checklist} />
+                  </div>
+                )}
+                </React.Fragment>
               ))}
             </div>
           )}

@@ -232,6 +232,103 @@ export async function POST(request: NextRequest) {
     results.push(`AVG consent: ${(candidate as { name: string }).name}`);
   }
 
+  // ─── 4. Stage duration alerts ─────────────────────────────────────────────
+  const stageKeys = [
+    'STAGE_ALERT_NEW_LEAD',
+    'STAGE_ALERT_PRE_SCREENING',
+    'STAGE_ALERT_SCREENING_DONE',
+    'STAGE_ALERT_INTERVIEW',
+    'STAGE_ALERT_RESERVE_BANK',
+  ];
+
+  const stageDefaults: Record<string, number> = {
+    STAGE_ALERT_NEW_LEAD: 3,
+    STAGE_ALERT_PRE_SCREENING: 5,
+    STAGE_ALERT_SCREENING_DONE: 3,
+    STAGE_ALERT_INTERVIEW: 7,
+    STAGE_ALERT_RESERVE_BANK: 30,
+  };
+
+  const stageStatusMap: Record<string, string> = {
+    STAGE_ALERT_NEW_LEAD: 'NEW_LEAD',
+    STAGE_ALERT_PRE_SCREENING: 'PRE_SCREENING',
+    STAGE_ALERT_SCREENING_DONE: 'SCREENING_DONE',
+    STAGE_ALERT_INTERVIEW: 'INTERVIEW',
+    STAGE_ALERT_RESERVE_BANK: 'RESERVE_BANK',
+  };
+
+  const stageLabels: Record<string, string> = {
+    NEW_LEAD: 'Nieuw',
+    PRE_SCREENING: 'Pre-screening',
+    SCREENING_DONE: 'Screening klaar',
+    INTERVIEW: 'Interview',
+    RESERVE_BANK: 'Reserve Bank',
+  };
+
+  const { data: thresholdRows } = await supabaseAdmin
+    .from('AppSetting')
+    .select('key, value')
+    .in('key', stageKeys);
+
+  const thresholds: Record<string, number> = { ...stageDefaults };
+  for (const row of thresholdRows ?? []) {
+    thresholds[row.key] = Number(row.value) || 0;
+  }
+
+  for (const key of stageKeys) {
+    const days = thresholds[key];
+    if (!days || days <= 0) continue;
+
+    const status = stageStatusMap[key];
+    const cutoff = new Date(today.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: staleCandidates } = await supabaseAdmin
+      .from('Candidate')
+      .select('id, name, status, assignedToId, stageUpdatedAt, updatedAt')
+      .eq('status', status)
+      .or(`stageUpdatedAt.lte.${cutoff},and(stageUpdatedAt.is.null,updatedAt.lte.${cutoff})`);
+
+    for (const candidate of staleCandidates ?? []) {
+      const cand = candidate as {
+        id: string; name: string; status: string;
+        assignedToId: string | null; stageUpdatedAt: string | null; updatedAt: string;
+      };
+
+      // Dedup: skip if already notified today for this candidate
+      const { count: existingCount } = await supabaseAdmin
+        .from('Notification')
+        .select('id', { count: 'exact', head: true })
+        .eq('type', 'CANDIDATE_STAGE_ALERT')
+        .eq('linkUrl', `/dashboard/werving/${cand.id}`)
+        .gte('createdAt', todayStr + 'T00:00:00');
+
+      if ((existingCount ?? 0) > 0) continue;
+
+      const since = cand.stageUpdatedAt ?? cand.updatedAt;
+      const daysInStage = Math.floor(
+        (today.getTime() - new Date(since).getTime()) / (1000 * 60 * 60 * 24)
+      );
+
+      const label = stageLabels[status] ?? status;
+      const recipientIds: string[] = cand.assignedToId ? [cand.assignedToId] : adminIds;
+
+      const notifRows = recipientIds.map((uid: string) => ({
+        userId: uid,
+        type: 'CANDIDATE_STAGE_ALERT',
+        title: `Kandidaat al ${daysInStage} dagen in "${label}"`,
+        message: `${cand.name} staat al ${daysInStage} dagen in de fase "${label}". Actie vereist.`,
+        isRead: false,
+        linkUrl: `/dashboard/werving/${cand.id}`,
+      }));
+
+      if (notifRows.length > 0) {
+        await supabaseAdmin.from('Notification').insert(notifRows);
+      }
+
+      results.push(`Stage alert: ${cand.name} (${daysInStage} dagen in ${label})`);
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     processed: results.length,

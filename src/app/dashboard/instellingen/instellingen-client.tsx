@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface Props {
   googleConnected: boolean;
@@ -42,6 +42,51 @@ export function InstellingenClient({
 }: Props) {
   const [nmbrsStatus, setNmbrsStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
   const [linkedinImporting, setLinkedinImporting] = useState(false);
+
+  // Stage alert thresholds
+  const [stageAlerts, setStageAlerts] = useState({
+    NEW_LEAD: 3,
+    PRE_SCREENING: 5,
+    SCREENING_DONE: 3,
+    INTERVIEW: 7,
+    RESERVE_BANK: 30,
+  });
+  const [stageAlertsLoading, setStageAlertsLoading] = useState(true);
+  const [stageAlertsSaving, setStageAlertsSaving] = useState(false);
+  const [stageAlertsSaved, setStageAlertsSaved] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/admin/stage-alerts')
+      .then((r) => r.json())
+      .then((d) => {
+        setStageAlerts({
+          NEW_LEAD: d.NEW_LEAD ?? 3,
+          PRE_SCREENING: d.PRE_SCREENING ?? 5,
+          SCREENING_DONE: d.SCREENING_DONE ?? 3,
+          INTERVIEW: d.INTERVIEW ?? 7,
+          RESERVE_BANK: d.RESERVE_BANK ?? 30,
+        });
+      })
+      .catch(() => {})
+      .finally(() => setStageAlertsLoading(false));
+  }, []);
+
+  async function saveStageAlerts() {
+    setStageAlertsSaving(true);
+    try {
+      await fetch('/api/admin/stage-alerts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stageAlerts),
+      });
+      setStageAlertsSaved(true);
+      setTimeout(() => setStageAlertsSaved(false), 2500);
+    } catch {
+      // silent fail
+    } finally {
+      setStageAlertsSaving(false);
+    }
+  }
   const [linkedinImportResult, setLinkedinImportResult] = useState('');
   const [nmbrsMessage, setNmbrsMessage] = useState('');
   const [nmbrsImporting, setNmbrsImporting] = useState(false);
@@ -533,6 +578,73 @@ LINKEDIN_WEBHOOK_SECRET=...  # optioneel, voor webhook verificatie`}
                 </a>
               </div>
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Stage Duration Alerts */}
+      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#68b0a6]/10">
+              <svg className="h-5 w-5 text-[#68b0a6]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white">Wervingsstage Alerts</h2>
+              <p className="text-xs text-[#9ca3af] mt-0.5">
+                Stuur een melding als een kandidaat te lang in een fase staat.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {stageAlertsLoading ? (
+            <p className="text-xs text-[#9ca3af]">Laden…</p>
+          ) : (
+            <>
+              {([
+                { key: 'NEW_LEAD', label: 'Nieuw' },
+                { key: 'PRE_SCREENING', label: 'Pre-screening' },
+                { key: 'SCREENING_DONE', label: 'Screening klaar' },
+                { key: 'INTERVIEW', label: 'Interview' },
+                { key: 'RESERVE_BANK', label: 'Reserve Bank' },
+              ] as { key: keyof typeof stageAlerts; label: string }[]).map(({ key, label }) => (
+                <div key={key} className="flex items-center justify-between gap-4 rounded-lg bg-[#1e2028] px-3 py-2">
+                  <span className="text-xs text-white w-36 shrink-0">{label}</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      value={stageAlerts[key]}
+                      onChange={(e) =>
+                        setStageAlerts((prev) => ({ ...prev, [key]: Number(e.target.value) }))
+                      }
+                      className="w-16 rounded-lg border border-[#363848] bg-[#14151b] px-2 py-1 text-xs text-white text-right focus:border-[#68b0a6] focus:outline-none"
+                    />
+                    <span className="text-xs text-[#9ca3af]">dagen</span>
+                  </div>
+                  <span className="text-xs text-[#9ca3af] flex-1 text-right">
+                    {stageAlerts[key] === 0 ? 'Uitgeschakeld' : `Alert na ${stageAlerts[key]} dagen`}
+                  </span>
+                </div>
+              ))}
+
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  onClick={saveStageAlerts}
+                  disabled={stageAlertsSaving}
+                  className="rounded-lg bg-[#68b0a6] px-4 py-2 text-xs font-semibold text-white hover:bg-[#7ec4ba] disabled:opacity-50 transition-colors"
+                >
+                  {stageAlertsSaving ? 'Opslaan…' : 'Drempelwaarden opslaan'}
+                </button>
+                {stageAlertsSaved && (
+                  <span className="text-xs text-[#68b0a6]">✓ Opgeslagen</span>
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>

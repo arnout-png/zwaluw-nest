@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
+import { sendInterviewInviteEmail } from '@/lib/email';
 
 export async function GET(
   _request: NextRequest,
@@ -71,7 +72,10 @@ export async function PATCH(
   // Build updates using real column names
   const updates: Record<string, unknown> = {};
 
-  if ('status' in body) updates.status = body.status;
+  if ('status' in body) {
+    updates.status = body.status;
+    updates.stageUpdatedAt = new Date().toISOString();
+  }
   if ('email' in body) updates.email = body.email;
   if ('phone' in body) updates.phone = body.phone;
   if ('location' in body) updates.location = body.location;
@@ -92,6 +96,17 @@ export async function PATCH(
     return NextResponse.json({ error: 'Geen geldige velden om bij te werken.' }, { status: 400 });
   }
 
+  // Fetch current candidate before update (for email trigger)
+  let currentCandidate: { email: string; name: string; assignedToId: string | null } | null = null;
+  if (body.status === 'INTERVIEW') {
+    const { data: existing } = await supabaseAdmin
+      .from('Candidate')
+      .select('email, name, assignedToId')
+      .eq('id', id)
+      .single();
+    currentCandidate = existing ?? null;
+  }
+
   updates.updatedAt = new Date().toISOString();
 
   const { data, error } = await supabaseAdmin
@@ -103,6 +118,28 @@ export async function PATCH(
 
   if (error) {
     return NextResponse.json({ error: 'Kan kandidaat niet bijwerken.' }, { status: 500 });
+  }
+
+  // Send interview invite email when status moves to INTERVIEW
+  if (body.status === 'INTERVIEW' && currentCandidate?.email && process.env.RESEND_API_KEY) {
+    let recruiterName: string | undefined;
+    if (currentCandidate.assignedToId) {
+      const { data: recruiter } = await supabaseAdmin
+        .from('User')
+        .select('name')
+        .eq('id', currentCandidate.assignedToId)
+        .single();
+      recruiterName = recruiter?.name;
+    }
+    try {
+      await sendInterviewInviteEmail({
+        to: currentCandidate.email,
+        candidateName: currentCandidate.name,
+        recruiterName,
+      });
+    } catch (err) {
+      console.error('Interview invite email failed:', err);
+    }
   }
 
   const parts = (data.name ?? '').trim().split(' ');
