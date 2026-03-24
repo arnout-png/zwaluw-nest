@@ -118,12 +118,6 @@ const NAV_ITEMS: NavItem[] = [
     roles: ['ADMIN', 'PLANNER', 'ADVISEUR', 'CALLCENTER', 'BACKOFFICE', 'WAREHOUSE'],
   },
   {
-    href: '/dashboard/personeel',
-    label: 'Personeel',
-    icon: <PersoneelIcon />,
-    roles: ['ADMIN'],
-  },
-  {
     href: '/dashboard/werving',
     label: 'Werving',
     icon: <WervingIcon />,
@@ -140,12 +134,6 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Vacatures',
     icon: <VacatureIcon />,
     roles: ['ADMIN'],
-  },
-  {
-    href: '/dashboard/verzuim',
-    label: 'Verzuim',
-    icon: <VerzuimIcon />,
-    roles: ['ADMIN', 'PLANNER'],
   },
   {
     href: '/dashboard/agenda',
