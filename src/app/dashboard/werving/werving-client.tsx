@@ -12,7 +12,8 @@ import {
 } from '@dnd-kit/core';
 import { KanbanColumn } from '@/components/recruitment/kanban-column';
 import { CandidateCard } from '@/components/recruitment/candidate-card';
-import type { Candidate, CandidateStatus } from '@/types';
+import type { Candidate, CandidateStatus, VacatureRol } from '@/types';
+import { VACATURE_ROL_LABELS } from '@/types';
 
 interface WervingClientProps {
   initialCandidates: Candidate[];
@@ -48,6 +49,7 @@ const STATUS_TO_COLUMN: Record<CandidateStatus, CandidateStatus> = {
 
 export function WervingClient({ initialCandidates }: WervingClientProps) {
   const [candidates, setCandidates] = useState<Candidate[]>(initialCandidates);
+  const [roleFilter, setRoleFilter] = useState<VacatureRol | 'ALL'>('ALL');
   const [activeCandidate, setActiveCandidate] = useState<Candidate | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -155,13 +157,22 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
     }
   }
 
+  const visibleCandidates = roleFilter === 'ALL'
+    ? candidates
+    : candidates.filter(c => c.jobOpening?.roleType === roleFilter);
+
+  // Collect roles that actually have candidates
+  const activeRoles = [...new Set(
+    candidates.map(c => c.jobOpening?.roleType).filter((r): r is VacatureRol => !!r)
+  )] as VacatureRol[];
+
   return (
     <div className="space-y-5 fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-white">Werving</h1>
-          <p className="mt-1 text-sm text-[#9ca3af]">{candidates.length} kandidaten in pipeline</p>
+          <p className="mt-1 text-sm text-[#9ca3af]">{visibleCandidates.length} kandidaten{roleFilter !== 'ALL' ? ` · ${VACATURE_ROL_LABELS[roleFilter]}` : ' in pipeline'}</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -173,6 +184,35 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
           Nieuwe kandidaat
         </button>
       </div>
+
+      {/* Role filter */}
+      {activeRoles.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setRoleFilter('ALL')}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              roleFilter === 'ALL'
+                ? 'bg-[#68b0a6] text-white'
+                : 'border border-[#363848] text-[#9ca3af] hover:text-white hover:border-[#68b0a6]'
+            }`}
+          >
+            Alle functies
+          </button>
+          {activeRoles.map(role => (
+            <button
+              key={role}
+              onClick={() => setRoleFilter(role === roleFilter ? 'ALL' : role)}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                roleFilter === role
+                  ? 'bg-[#68b0a6] text-white'
+                  : 'border border-[#363848] text-[#9ca3af] hover:text-white hover:border-[#68b0a6]'
+              }`}
+            >
+              {VACATURE_ROL_LABELS[role]}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* New candidate form */}
       {showForm && (
@@ -228,7 +268,7 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
         <div className="overflow-x-auto pb-4">
           <div className="flex gap-4 min-w-max">
             {COLUMNS.map((col) => {
-              const colCandidates = candidates.filter((c) =>
+              const colCandidates = visibleCandidates.filter((c) =>
                 (col.statuses as string[]).includes(c.status)
               );
               return (

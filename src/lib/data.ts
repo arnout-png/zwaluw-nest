@@ -84,7 +84,7 @@ export async function getCandidates(status?: string): Promise<Candidate[]> {
     .select(
       `id, status, name, email, phone, age, location, salaryExpectation,
        consentGiven, consentDate, consentExpiresAt, leadSource, leadCampaignId,
-       assignedToId, createdAt, updatedAt`
+       assignedToId, jobOpeningId, createdAt, updatedAt`
     )
     .order('createdAt', { ascending: false });
 
@@ -106,8 +106,25 @@ export async function getCandidates(status?: string): Promise<Candidate[]> {
     if (users) usersMap = Object.fromEntries((users as { id: string; name: string }[]).map(u => [u.id, u]));
   }
 
+  // Fetch job openings separately
+  const jobOpeningIds = [...new Set(candidates.map(c => c.jobOpeningId).filter((id): id is string => !!id))];
+  let jobOpeningsMap: Record<string, { id: string; title: string; slug: string; roleType?: string }> = {};
+  if (jobOpeningIds.length > 0) {
+    const { data: jobOpenings } = await supabaseAdmin
+      .from('JobOpening')
+      .select('id, title, slug, roleType')
+      .in('id', jobOpeningIds);
+    if (jobOpenings) jobOpeningsMap = Object.fromEntries(
+      (jobOpenings as { id: string; title: string; slug: string; roleType?: string }[]).map(j => [j.id, j])
+    );
+  }
+
   return candidates.map(c =>
-    splitCandidateName({ ...c, assignedTo: c.assignedToId ? usersMap[c.assignedToId] : undefined })
+    splitCandidateName({
+      ...c,
+      assignedTo: c.assignedToId ? usersMap[c.assignedToId] : undefined,
+      jobOpening: c.jobOpeningId ? jobOpeningsMap[c.jobOpeningId] : undefined,
+    })
   );
 }
 
