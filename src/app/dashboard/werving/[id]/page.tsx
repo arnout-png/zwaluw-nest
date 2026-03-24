@@ -8,6 +8,7 @@ import { CandidateAssignClient } from './candidate-assign-client';
 import { CandidateScreeningClient } from './candidate-screening-client';
 import { CandidateChecklistClient } from './candidate-checklist-client';
 import { CandidateCallLogClient } from './candidate-call-log-client';
+import { CandidatePersonalDetailsClient } from './candidate-personal-details-client';
 import {
   getActiveScreeningScript,
   getScreeningAnswers,
@@ -187,38 +188,8 @@ export default async function CandidateDetailPage({
         }
       />
 
-      {/* Persoonlijke gegevens */}
-      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
-        <h2 className="text-sm font-semibold text-white mb-4">Persoonlijke gegevens</h2>
-        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <InfoRow label="E-mailadres" value={candidate.email} />
-          <InfoRow label="Telefoon" value={candidate.phone} />
-          <InfoRow label="Leeftijd" value={candidate.age ? `${candidate.age} jaar` : null} />
-          <InfoRow label="Woonplaats" value={candidate.location} />
-          <InfoRow label="Woonsituatie" value={candidate.livingSituation} />
-          <InfoRow label="Partner werkt" value={candidate.partnerEmployment} />
-          <InfoRow label="Huidige baan" value={candidate.currentJob} />
-          <InfoRow label="Reden van vertrek" value={candidate.reasonForLeaving} />
-          <InfoRow
-            label="Salarisverwachting"
-            value={candidate.salaryExpectation ? `€${candidate.salaryExpectation}` : null}
-          />
-          <InfoRow label="Lead bron" value={candidate.leadSource} />
-          <InfoRow label="Campagne ID" value={candidate.leadCampaignId} />
-          <InfoRow
-            label="AVG toestemming"
-            value={
-              candidate.consentGiven
-                ? `Gegeven op ${candidate.consentDate
-                    ? new Date(candidate.consentDate).toLocaleDateString('nl-NL', {
-                        day: 'numeric', month: 'long', year: 'numeric',
-                      })
-                    : 'onbekende datum'}`
-                : 'Niet gegeven'
-            }
-          />
-        </dl>
-      </div>
+      {/* Persoonlijke gegevens — bewerkbaar */}
+      <CandidatePersonalDetailsClient candidate={candidate} />
 
       {/* Gespreksscores */}
       {candidate.interviewScores && candidate.interviewScores.length > 0 && (

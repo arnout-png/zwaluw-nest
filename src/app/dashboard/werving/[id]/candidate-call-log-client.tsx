@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import type { CallLog, CallStatus, CandidateStatus } from '@/types';
 
@@ -87,6 +87,14 @@ export function CandidateCallLogClient({
   // Rejection state
   const [confirmReject, setConfirmReject] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+
+  // Sync when CandidateStageClient changes status externally and triggers router.refresh()
+  useEffect(() => {
+    setCurrentStatus(prev => {
+      const order: CandidateStatus[] = ['NEW_LEAD', 'PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED'];
+      return order.indexOf(candidateStatus) > order.indexOf(prev) ? candidateStatus : prev;
+    });
+  }, [candidateStatus]);
 
   const lastLog = callLogs[0] ?? null;
 

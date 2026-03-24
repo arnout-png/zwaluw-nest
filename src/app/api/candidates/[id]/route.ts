@@ -77,10 +77,16 @@ export async function PATCH(
     updates.stageUpdatedAt = new Date().toISOString();
   }
   if ('email' in body) updates.email = body.email;
-  if ('phone' in body) updates.phone = body.phone;
-  if ('location' in body) updates.location = body.location;
+  if ('phone' in body) updates.phone = body.phone ?? null;
+  if ('age' in body) updates.age = body.age ? Number(body.age) : null;
+  if ('location' in body) updates.location = body.location ?? null;
+  if ('livingSituation' in body) updates.livingSituation = body.livingSituation ?? null;
+  if ('partnerEmployment' in body) updates.partnerEmployment = body.partnerEmployment ?? null;
+  if ('currentJob' in body) updates.currentJob = body.currentJob ?? null;
+  if ('reasonForLeaving' in body) updates.reasonForLeaving = body.reasonForLeaving ?? null;
   if ('salaryExpectation' in body) updates.salaryExpectation = body.salaryExpectation ? String(body.salaryExpectation) : null;
   if ('leadSource' in body) updates.leadSource = body.leadSource ?? null;
+  if ('leadCampaignId' in body) updates.leadCampaignId = body.leadCampaignId ?? null;
   if ('assignedToId' in body) updates.assignedToId = body.assignedToId ?? null;
 
   // Handle name: accept either combined or split
