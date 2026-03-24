@@ -56,10 +56,11 @@ export async function POST(
     return NextResponse.json({ error: 'Ongeldige belstatus.' }, { status: 400 });
   }
 
-  // Insert call log
+  // Insert call log (id must be provided — no DB default)
   const { data: log, error } = await supabaseAdmin
     .from('CallLog')
     .insert({
+      id: crypto.randomUUID(),
       candidateId,
       userId: session.userId,
       status,
