@@ -8,7 +8,7 @@ const ALL_STAGES: { value: CandidateStatus; label: string }[] = [
   { value: 'NEW_LEAD', label: 'Nieuw' },
   { value: 'PRE_SCREENING', label: 'Pre-screening' },
   { value: 'SCREENING_DONE', label: 'Screening klaar' },
-  { value: 'INTERVIEW', label: 'Interview' },
+  { value: 'INTERVIEW', label: 'Sollicitatiegesprek' },
   { value: 'RESERVE_BANK', label: 'Reserve Bank' },
   { value: 'HIRED', label: 'Aangenomen' },
   { value: 'REJECTED', label: 'Afgewezen' },

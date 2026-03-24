@@ -22,7 +22,7 @@ const STATUS_LABELS: Record<CandidateStatus, string> = {
   NEW_LEAD: 'Nieuw',
   PRE_SCREENING: 'Pre-screening',
   SCREENING_DONE: 'Screening klaar',
-  INTERVIEW: 'Interview',
+  INTERVIEW: 'Sollicitatiegesprek',
   RESERVE_BANK: 'Reserve Bank',
   HIRED: 'Aangenomen',
   REJECTED: 'Afgewezen',
@@ -85,11 +85,6 @@ export default async function CandidateDetailPage({
       getChecklistResults(id),
       getCallLogs(id),
     ]);
-
-  const SCREENING_STAGES: CandidateStatus[] = ['PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED'];
-  const INTERVIEW_STAGES: CandidateStatus[] = ['INTERVIEW', 'RESERVE_BANK', 'HIRED'];
-  const showScreening = SCREENING_STAGES.includes(candidate.status);
-  const showInterview = INTERVIEW_STAGES.includes(candidate.status);
 
   const consentDaysLeft = candidate.consentExpiresAt
     ? Math.ceil(
@@ -165,13 +160,31 @@ export default async function CandidateDetailPage({
         </div>
       </div>
 
-      {/* Bel opvolging */}
+      {/* Bel opvolging + Pre-screening + Interview checklist (unified workflow) */}
       <CandidateCallLogClient
         candidateId={candidate.id}
         candidateStatus={candidate.status}
         candidatePhone={candidate.phone ?? null}
         candidateName={`${candidate.firstName ?? ''} ${candidate.lastName ?? ''}`.trim()}
         initialCallLogs={callLogs}
+        screeningSection={
+          screeningScript ? (
+            <CandidateScreeningClient
+              candidateId={candidate.id}
+              script={screeningScript}
+              initialAnswers={screeningAnswers}
+            />
+          ) : null
+        }
+        checklistSection={
+          interviewChecklist ? (
+            <CandidateChecklistClient
+              candidateId={candidate.id}
+              checklist={interviewChecklist}
+              initialResults={checklistResults}
+            />
+          ) : null
+        }
       />
 
       {/* Persoonlijke gegevens */}
@@ -206,40 +219,6 @@ export default async function CandidateDetailPage({
           />
         </dl>
       </div>
-
-      {/* Pre-screening script */}
-      {showScreening && screeningScript && (
-        <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-white">Pre-screening — {screeningScript.name}</h2>
-            <span className="rounded-full bg-yellow-500/10 px-2 py-0.5 text-[10px] font-medium text-yellow-400">
-              Script
-            </span>
-          </div>
-          <CandidateScreeningClient
-            candidateId={candidate.id}
-            script={screeningScript}
-            initialAnswers={screeningAnswers}
-          />
-        </div>
-      )}
-
-      {/* Interview checklist */}
-      {showInterview && interviewChecklist && (
-        <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-white">Interview checklist — {interviewChecklist.name}</h2>
-            <span className="rounded-full bg-purple-500/10 px-2 py-0.5 text-[10px] font-medium text-purple-400">
-              Checklist
-            </span>
-          </div>
-          <CandidateChecklistClient
-            candidateId={candidate.id}
-            checklist={interviewChecklist}
-            initialResults={checklistResults}
-          />
-        </div>
-      )}
 
       {/* Gespreksscores */}
       {candidate.interviewScores && candidate.interviewScores.length > 0 && (

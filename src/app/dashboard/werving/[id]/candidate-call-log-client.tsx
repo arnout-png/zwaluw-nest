@@ -55,6 +55,8 @@ interface Props {
   candidatePhone: string | null;
   candidateName: string;
   initialCallLogs: CallLog[];
+  screeningSection: React.ReactNode;
+  checklistSection: React.ReactNode;
 }
 
 export function CandidateCallLogClient({
@@ -62,6 +64,8 @@ export function CandidateCallLogClient({
   candidateStatus,
   candidateName,
   initialCallLogs,
+  screeningSection,
+  checklistSection,
 }: Props) {
   const router = useRouter();
   const [callLogs, setCallLogs] = useState<CallLog[]>(initialCallLogs);
@@ -86,9 +90,10 @@ export function CandidateCallLogClient({
 
   const lastLog = callLogs[0] ?? null;
 
-  // Show outcome (Geen interesse / Interessant) when in screening phase
-  const inScreeningPhase = ['PRE_SCREENING', 'SCREENING_DONE'].includes(currentStatus);
-  const showOutcome = inScreeningPhase && !appointmentDone && currentStatus !== 'REJECTED';
+  // Visibility logic — fully client-state driven, no router.refresh() needed
+  const showScreening = ['PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED'].includes(currentStatus);
+  const showOutcome = showScreening && !['INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED'].includes(currentStatus) && !appointmentDone;
+  const showChecklist = ['INTERVIEW', 'RESERVE_BANK', 'HIRED'].includes(currentStatus) || appointmentDone;
   const isResolved = ['INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED'].includes(currentStatus);
 
   async function logCall() {
@@ -109,10 +114,9 @@ export function CandidateCallLogClient({
       setCallLogs(prev => [data.data, ...prev]);
       setNoteText('');
       setSelectedStatus(null);
+      // When BEREIKT is logged: advance status to PRE_SCREENING locally — no router.refresh() needed
       if (selectedStatus === 'BEREIKT' && currentStatus === 'NEW_LEAD') {
         setCurrentStatus('PRE_SCREENING');
-        // Refresh to load pre-screening section from server
-        router.refresh();
       }
     } catch {
       setSaveError('Verbinding mislukt.');
@@ -131,7 +135,7 @@ export function CandidateCallLogClient({
       });
       setCurrentStatus('REJECTED');
       setConfirmReject(false);
-      router.refresh();
+      router.refresh(); // Refresh to update header status badge
     } catch {
       // silent
     } finally {
@@ -162,7 +166,7 @@ export function CandidateCallLogClient({
       setAppointmentDone(true);
       setCurrentStatus('INTERVIEW');
       setShowAppointmentForm(false);
-      router.refresh();
+      router.refresh(); // Refresh header status badge only
     } catch {
       setBookingError('Verbinding mislukt.');
     } finally {
@@ -170,94 +174,160 @@ export function CandidateCallLogClient({
     }
   }
 
-  // Minimum date = today
   const today = new Date().toISOString().split('T')[0];
 
   return (
-    <div className="rounded-xl border border-[#363848] bg-[#252732] p-5 space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h2 className="text-sm font-semibold text-white">Bel opvolging</h2>
-          {lastLog && (
-            <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium ${STATUS_COLORS[lastLog.status as CallStatus]}`}>
-              Laatste: {STATUS_LABELS[lastLog.status as CallStatus]}
-            </span>
-          )}
+    <div className="space-y-4">
+      {/* ── Bel opvolging card ─────────────────────────────────────── */}
+      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5 space-y-5">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-semibold text-white">Bel opvolging</h2>
+            {lastLog && (
+              <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium ${STATUS_COLORS[lastLog.status as CallStatus]}`}>
+                Laatste: {STATUS_LABELS[lastLog.status as CallStatus]}
+              </span>
+            )}
+          </div>
+          <span className="text-xs text-[#9ca3af]">{callLogs.length} poging{callLogs.length !== 1 ? 'en' : ''}</span>
         </div>
-        <span className="text-xs text-[#9ca3af]">{callLogs.length} poging{callLogs.length !== 1 ? 'en' : ''}</span>
+
+        {/* Appointment success banner */}
+        {appointmentDone && (
+          <div className="rounded-lg border border-[#68b0a6]/30 bg-[#68b0a6]/10 px-4 py-3 flex items-center gap-3">
+            <span className="text-lg">📅</span>
+            <div>
+              <p className="text-sm font-medium text-[#68b0a6]">Afspraak bevestigd</p>
+              <p className="text-xs text-[#9ca3af] mt-0.5">SMS en e-mail zijn verzonden naar {candidateName}. Status bijgewerkt naar Sollicitatiegesprek.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Rejected banner */}
+        {currentStatus === 'REJECTED' && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
+            <p className="text-sm text-red-400 font-medium">Kandidaat afgewezen</p>
+          </div>
+        )}
+
+        {/* Log bel poging form — hide when resolved */}
+        {!isResolved && (
+          <div className="space-y-3">
+            <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">Log bel poging</p>
+
+            {/* Status buttons */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {CALL_STATUSES.map(({ status, label, icon, color, activeColor }) => (
+                <button
+                  key={status}
+                  onClick={() => setSelectedStatus(prev => prev === status ? null : status)}
+                  className={`rounded-lg border px-3 py-2.5 text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
+                    selectedStatus === status ? activeColor : color
+                  }`}
+                >
+                  <span>{icon}</span>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Optional note + save */}
+            {selectedStatus && (
+              <div className="space-y-2">
+                <textarea
+                  value={noteText}
+                  onChange={e => setNoteText(e.target.value)}
+                  placeholder="Optionele notitie (bijv. 'Belt terug morgen om 9:00')"
+                  rows={2}
+                  className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white placeholder-[#9ca3af] focus:border-[#68b0a6] focus:outline-none resize-none"
+                />
+                {saveError && (
+                  <p className="text-xs text-red-400">{saveError}</p>
+                )}
+                <button
+                  onClick={logCall}
+                  disabled={saving}
+                  className="rounded-lg bg-[#68b0a6] px-4 py-2 text-sm font-medium text-white hover:bg-[#7ec4ba] disabled:opacity-50 transition-colors"
+                >
+                  {saving ? 'Opslaan...' : `Log: ${STATUS_LABELS[selectedStatus]}`}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Bel historie */}
+        {callLogs.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">Bel historie</p>
+            <div className="space-y-2">
+              {callLogs.map((log, i) => (
+                <div
+                  key={log.id}
+                  className={`flex items-start gap-3 rounded-lg p-3 ${
+                    i === 0 ? 'bg-[#1e2028] border border-[#363848]' : 'bg-[#1a1c24]'
+                  }`}
+                >
+                  <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm ${STATUS_COLORS[log.status as CallStatus]}`}>
+                    {log.status === 'GEEN_GEHOOR' && '📵'}
+                    {log.status === 'VOICEMAIL' && '📬'}
+                    {log.status === 'BEREIKT' && '✅'}
+                    {log.status === 'TERUGBELLEN' && '🔁'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`text-xs font-semibold ${STATUS_COLORS[log.status as CallStatus].split(' ')[1]}`}>
+                        {STATUS_LABELS[log.status as CallStatus]}
+                      </span>
+                      <span className="text-[10px] text-[#9ca3af] shrink-0">
+                        {new Date(log.createdAt).toLocaleString('nl-NL', {
+                          day: 'numeric',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
+                    {log.user && (
+                      <p className="text-[10px] text-[#9ca3af] mt-0.5">{log.user.name}</p>
+                    )}
+                    {log.notes && (
+                      <p className="text-xs text-[#9ca3af] mt-1 italic">&ldquo;{log.notes}&rdquo;</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {callLogs.length === 0 && !isResolved && (
+          <p className="text-xs text-[#9ca3af] text-center py-3 border border-dashed border-[#363848] rounded-lg">
+            Nog geen bel pogingen geregistreerd.
+          </p>
+        )}
       </div>
 
-      {/* Appointment success banner */}
-      {appointmentDone && (
-        <div className="rounded-lg border border-[#68b0a6]/30 bg-[#68b0a6]/10 px-4 py-3 flex items-center gap-3">
-          <span className="text-lg">📅</span>
-          <div>
-            <p className="text-sm font-medium text-[#68b0a6]">Afspraak bevestigd</p>
-            <p className="text-xs text-[#9ca3af] mt-0.5">SMS en e-mail zijn verzonden naar {candidateName}. Status bijgewerkt naar Interview.</p>
+      {/* ── Pre-screening sectie ───────────────────────────────────── */}
+      {showScreening && screeningSection && (
+        <div className="rounded-xl border border-[#68b0a6]/30 bg-[#252732] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-white">📋 Pre-screening — vragen doorlopen tijdens gesprek</h2>
+            <span className="rounded-full bg-[#68b0a6]/10 px-2 py-0.5 text-[10px] font-medium text-[#68b0a6]">
+              Script
+            </span>
           </div>
+          {screeningSection}
         </div>
       )}
 
-      {/* Rejected banner */}
-      {currentStatus === 'REJECTED' && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
-          <p className="text-sm text-red-400 font-medium">Kandidaat afgewezen</p>
-        </div>
-      )}
-
-      {/* Log bel poging form — hide when resolved */}
-      {!isResolved && (
-        <div className="space-y-3">
-          <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">Log bel poging</p>
-
-          {/* Status buttons */}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {CALL_STATUSES.map(({ status, label, icon, color, activeColor }) => (
-              <button
-                key={status}
-                onClick={() => setSelectedStatus(prev => prev === status ? null : status)}
-                className={`rounded-lg border px-3 py-2.5 text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
-                  selectedStatus === status ? activeColor : color
-                }`}
-              >
-                <span>{icon}</span>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* Optional note */}
-          {selectedStatus && (
-            <div className="space-y-2">
-              <textarea
-                value={noteText}
-                onChange={e => setNoteText(e.target.value)}
-                placeholder="Optionele notitie (bijv. 'Belt terug morgen om 9:00')"
-                rows={2}
-                className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white placeholder-[#9ca3af] focus:border-[#68b0a6] focus:outline-none resize-none"
-              />
-              {saveError && (
-                <p className="text-xs text-red-400">{saveError}</p>
-              )}
-              <button
-                onClick={logCall}
-                disabled={saving}
-                className="rounded-lg bg-[#68b0a6] px-4 py-2 text-sm font-medium text-white hover:bg-[#7ec4ba] disabled:opacity-50 transition-colors"
-              >
-                {saving ? 'Opslaan...' : `Log: ${STATUS_LABELS[selectedStatus]}`}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Outcome section — visible when in screening phase */}
+      {/* ── Uitkomst sectie ────────────────────────────────────────── */}
       {showOutcome && (
-        <div className="rounded-lg border border-[#f7a247]/20 bg-[#f7a247]/5 p-4 space-y-3">
+        <div className="rounded-xl border border-[#f7a247]/20 bg-[#252732] p-5 space-y-3">
           <div>
             <p className="text-sm font-semibold text-white">Uitkomst pre-screening</p>
-            <p className="text-xs text-[#9ca3af] mt-0.5">Loop de pre-screening vragen hieronder door en geef het resultaat aan.</p>
+            <p className="text-xs text-[#9ca3af] mt-0.5">Loop de pre-screening vragen hierboven door en geef het resultaat aan.</p>
           </div>
 
           {!showAppointmentForm && !confirmReject && (
@@ -272,7 +342,7 @@ export function CandidateCallLogClient({
                 onClick={() => setShowAppointmentForm(true)}
                 className="rounded-lg bg-[#68b0a6] px-4 py-2 text-sm font-medium text-white hover:bg-[#7ec4ba] transition-colors"
               >
-                👍 Interessant — Afspraak plannen
+                👍 Interessant — Sollicitatiegesprek plannen
               </button>
             </div>
           )}
@@ -306,7 +376,7 @@ export function CandidateCallLogClient({
               <p className="text-sm font-semibold text-white">📅 Sollicitatiegesprek inplannen</p>
               <p className="text-xs text-[#9ca3af]">
                 Na bevestigen ontvangt <strong className="text-white">{candidateName}</strong> een SMS en e-mail bevestiging.
-                Status wordt bijgewerkt naar Interview.
+                Status wordt bijgewerkt naar Sollicitatiegesprek.
               </p>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -368,59 +438,17 @@ export function CandidateCallLogClient({
         </div>
       )}
 
-      {/* Timeline */}
-      {callLogs.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">Bel historie</p>
-          <div className="space-y-2">
-            {callLogs.map((log, i) => (
-              <div
-                key={log.id}
-                className={`flex items-start gap-3 rounded-lg p-3 ${
-                  i === 0 ? 'bg-[#1e2028] border border-[#363848]' : 'bg-[#1a1c24]'
-                }`}
-              >
-                {/* Icon */}
-                <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm ${STATUS_COLORS[log.status as CallStatus]}`}>
-                  {log.status === 'GEEN_GEHOOR' && '📵'}
-                  {log.status === 'VOICEMAIL' && '📬'}
-                  {log.status === 'BEREIKT' && '✅'}
-                  {log.status === 'TERUGBELLEN' && '🔁'}
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className={`text-xs font-semibold ${STATUS_COLORS[log.status as CallStatus].split(' ')[1]}`}>
-                      {STATUS_LABELS[log.status as CallStatus]}
-                    </span>
-                    <span className="text-[10px] text-[#9ca3af] shrink-0">
-                      {new Date(log.createdAt).toLocaleString('nl-NL', {
-                        day: 'numeric',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
-                  {log.user && (
-                    <p className="text-[10px] text-[#9ca3af] mt-0.5">{log.user.name}</p>
-                  )}
-                  {log.notes && (
-                    <p className="text-xs text-[#9ca3af] mt-1 italic">"{log.notes}"</p>
-                  )}
-                </div>
-              </div>
-            ))}
+      {/* ── Interview checklist sectie ────────────────────────────── */}
+      {showChecklist && checklistSection && (
+        <div className="rounded-xl border border-purple-500/30 bg-[#252732] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-white">✅ Sollicitatiegesprek checklist</h2>
+            <span className="rounded-full bg-purple-500/10 px-2 py-0.5 text-[10px] font-medium text-purple-400">
+              Checklist
+            </span>
           </div>
+          {checklistSection}
         </div>
-      )}
-
-      {/* Empty state */}
-      {callLogs.length === 0 && !isResolved && (
-        <p className="text-xs text-[#9ca3af] text-center py-3 border border-dashed border-[#363848] rounded-lg">
-          Nog geen bel pogingen geregistreerd.
-        </p>
       )}
     </div>
   );

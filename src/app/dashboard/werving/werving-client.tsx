@@ -31,7 +31,7 @@ interface NewCandidateForm {
 const COLUMNS: { title: string; statuses: CandidateStatus[]; color: string }[] = [
   { title: 'Nieuw', statuses: ['NEW_LEAD'], color: 'bg-blue-600' },
   { title: 'Pre-screening', statuses: ['PRE_SCREENING', 'SCREENING_DONE'], color: 'bg-yellow-600' },
-  { title: 'Interview', statuses: ['INTERVIEW'], color: 'bg-purple-600' },
+  { title: 'Sollicitatiegesprek', statuses: ['INTERVIEW'], color: 'bg-purple-600' },
   { title: 'Reserve Bank', statuses: ['RESERVE_BANK'], color: 'bg-[#4a8f85]' },
   { title: 'Aangenomen', statuses: ['HIRED'], color: 'bg-green-700' },
 ];
