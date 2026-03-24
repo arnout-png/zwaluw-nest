@@ -73,6 +73,18 @@ export type LeadSource =
   | 'GOOGLE'
   | 'OTHER';
 
+export type CallStatus = 'GEEN_GEHOOR' | 'VOICEMAIL' | 'BEREIKT' | 'TERUGBELLEN';
+
+export interface CallLog {
+  id: string;
+  candidateId: string;
+  userId: string;
+  status: CallStatus;
+  notes?: string | null;
+  createdAt: string;
+  user?: { id: string; name: string } | null;
+}
+
 export type VacatureRol =
   | 'MONTEUR'
   | 'ADVISEUR'

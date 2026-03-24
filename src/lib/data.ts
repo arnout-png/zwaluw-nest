@@ -13,6 +13,7 @@ import type {
   InterviewChecklist,
   InterviewChecklistResult,
   JobOpening,
+  CallLog,
 } from '@/types';
 
 // ─── Employees ────────────────────────────────────────────────────────────────
@@ -214,6 +215,36 @@ export function splitCandidateName(c: Candidate): Candidate {
     c.lastName = (parts.slice(1).join(' ') || parts[0]) ?? '';
   }
   return c;
+}
+
+// ─── Call logs ────────────────────────────────────────────────────────────────
+
+export async function getCallLogs(candidateId: string): Promise<CallLog[]> {
+  const { data, error } = await supabaseAdmin
+    .from('CallLog')
+    .select('id, candidateId, userId, status, notes, createdAt')
+    .eq('candidateId', candidateId)
+    .order('createdAt', { ascending: false });
+
+  if (error) {
+    // Table may not exist yet in dev — return empty array gracefully
+    if (error.code !== 'PGRST116') {
+      console.error('getCallLogs error:', error.message, error.code);
+    }
+    return [];
+  }
+
+  const rows = (data ?? []) as { id: string; candidateId: string; userId: string; status: string; notes: string | null; createdAt: string }[];
+  if (!rows.length) return rows as CallLog[];
+
+  const userIds = [...new Set(rows.map(r => r.userId))];
+  const { data: users } = await supabaseAdmin.from('User').select('id, name').in('id', userIds);
+  const usersMap = Object.fromEntries(((users ?? []) as { id: string; name: string }[]).map(u => [u.id, u]));
+
+  return rows.map(r => ({
+    ...r,
+    user: r.userId ? (usersMap[r.userId] ?? null) : null,
+  })) as CallLog[];
 }
 
 // ─── Leave requests ───────────────────────────────────────────────────────────

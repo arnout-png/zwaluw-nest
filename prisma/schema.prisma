@@ -78,6 +78,25 @@ enum CandidateStatus {
   WITHDRAWN       // Candidate withdrew or GDPR deletion
 }
 
+enum CallStatus {
+  GEEN_GEHOOR   // Niet opgenomen
+  VOICEMAIL     // Voicemail ingesproken
+  BEREIKT       // Kandidaat opgenomen — gesprek gevoerd
+  TERUGBELLEN   // Afgesproken terug te bellen
+}
+
+model CallLog {
+  id          String     @id @default(cuid())
+  candidateId String
+  userId      String     // Recruiter die belde
+  status      CallStatus
+  notes       String?    // Optionele gespreksnotitie
+  createdAt   DateTime   @default(now())
+
+  @@index([candidateId])
+  @@index([userId])
+}
+
 model Candidate {
   id        String          @id @default(cuid())
   status    CandidateStatus @default(NEW_LEAD)

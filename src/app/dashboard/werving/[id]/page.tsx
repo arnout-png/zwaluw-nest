@@ -7,11 +7,13 @@ import { CandidateStageClient } from './candidate-stage-client';
 import { CandidateAssignClient } from './candidate-assign-client';
 import { CandidateScreeningClient } from './candidate-screening-client';
 import { CandidateChecklistClient } from './candidate-checklist-client';
+import { CandidateCallLogClient } from './candidate-call-log-client';
 import {
   getActiveScreeningScript,
   getScreeningAnswers,
   getActiveInterviewChecklist,
   getChecklistResults,
+  getCallLogs,
 } from '@/lib/data';
 import type { CandidateStatus } from '@/types';
 import { VACATURE_ROL_LABELS } from '@/types';
@@ -75,12 +77,13 @@ export default async function CandidateDetailPage({
   if (!candidate) notFound();
 
   const roleType = candidate.jobOpening?.roleType ?? null;
-  const [screeningScript, screeningAnswers, interviewChecklist, checklistResults] =
+  const [screeningScript, screeningAnswers, interviewChecklist, checklistResults, callLogs] =
     await Promise.all([
       getActiveScreeningScript(roleType),
       getScreeningAnswers(id),
       getActiveInterviewChecklist(roleType),
       getChecklistResults(id),
+      getCallLogs(id),
     ]);
 
   const SCREENING_STAGES: CandidateStatus[] = ['PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED'];
@@ -161,6 +164,15 @@ export default async function CandidateDetailPage({
           />
         </div>
       </div>
+
+      {/* Bel opvolging */}
+      <CandidateCallLogClient
+        candidateId={candidate.id}
+        candidateStatus={candidate.status}
+        candidatePhone={candidate.phone ?? null}
+        candidateName={`${candidate.firstName ?? ''} ${candidate.lastName ?? ''}`.trim()}
+        initialCallLogs={callLogs}
+      />
 
       {/* Persoonlijke gegevens */}
       <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">

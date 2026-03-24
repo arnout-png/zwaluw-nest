@@ -358,6 +358,98 @@ export async function sendInterviewInviteEmail(opts: {
   });
 }
 
+export async function sendAppointmentConfirmationCandidate(opts: {
+  to: string;
+  candidateName: string;
+  date: string;
+  time: string;
+  location: string;
+}) {
+  if (!process.env.RESEND_API_KEY) return;
+  const content = `
+    <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Afspraak bevestigd ✓</h2>
+    <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
+      Hoi ${opts.candidateName},<br /><br />
+      Geweldig! Je sollicitatiegesprek bij Veilig Douchen is bevestigd. We kijken ernaar uit je te ontmoeten.
+    </p>
+    <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:8px;border:1px solid #363848;overflow:hidden;">
+      <tr style="background:#1e2028;">
+        <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Datum</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${opts.date}</td>
+      </tr>
+      <tr>
+        <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Tijd</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${opts.time} uur</td>
+      </tr>
+      <tr style="background:#1e2028;">
+        <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Locatie</td>
+        <td style="padding:12px 16px;color:#68b0a6;font-size:13px;">${opts.location}</td>
+      </tr>
+    </table>
+    <p style="color:#9ca3af;font-size:13px;margin-top:20px;">
+      Neem gerust contact op als je vragen hebt of de afspraak moet verzetten:<br />
+      <a href="mailto:info@veiligdouchen.nl" style="color:#68b0a6;">info@veiligdouchen.nl</a>
+    </p>
+    <p style="color:#9ca3af;font-size:13px;margin-top:8px;">
+      Tot dan! — Team Veilig Douchen
+    </p>
+  `;
+
+  return getResend().emails.send({
+    from: FROM,
+    to: opts.to,
+    subject: `Afspraak bevestigd — ${opts.date} om ${opts.time} uur`,
+    html: htmlWrapper(content, 'Afspraak bevestigd'),
+    text: `Hoi ${opts.candidateName}, je sollicitatiegesprek is bevestigd op ${opts.date} om ${opts.time} uur op ${opts.location}. Tot dan! — Team Veilig Douchen`,
+  });
+}
+
+export async function sendAppointmentNotificationInternal(opts: {
+  to: string;
+  candidateName: string;
+  candidatePhone: string | null;
+  date: string;
+  time: string;
+}) {
+  if (!process.env.RESEND_API_KEY) return;
+  const content = `
+    <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Afspraak ingepland 📅</h2>
+    <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
+      Er is een sollicitatiegesprek ingepland via de werving pipeline.
+    </p>
+    <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:8px;border:1px solid #363848;overflow:hidden;">
+      <tr style="background:#1e2028;">
+        <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Kandidaat</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${opts.candidateName}</td>
+      </tr>
+      ${opts.candidatePhone ? `
+      <tr>
+        <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Telefoon</td>
+        <td style="padding:12px 16px;color:#68b0a6;font-size:13px;">${opts.candidatePhone}</td>
+      </tr>` : ''}
+      <tr style="background:#1e2028;">
+        <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Datum</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${opts.date}</td>
+      </tr>
+      <tr>
+        <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Tijd</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${opts.time} uur</td>
+      </tr>
+    </table>
+    <p style="color:#9ca3af;font-size:12px;margin-top:16px;">
+      Kandidaat en recruiter ontvingen een bevestiging. Status is bijgewerkt naar Interview.
+    </p>
+  `;
+
+  return getResend().emails.send({
+    from: FROM,
+    to: opts.to,
+    subject: `Afspraak ingepland: ${opts.candidateName} — ${opts.date} ${opts.time}`,
+    html: htmlWrapper(content, 'Afspraak ingepland'),
+    text: `Afspraak ingepland voor ${opts.candidateName} op ${opts.date} om ${opts.time} uur.`,
+  });
+}
+
 export async function sendRejectionEmail(opts: {
   to: string;
   candidateName: string;
