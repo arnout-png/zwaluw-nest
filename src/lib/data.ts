@@ -12,6 +12,7 @@ import type {
   ScreeningAnswer,
   InterviewChecklist,
   InterviewChecklistResult,
+  JobOpening,
 } from '@/types';
 
 // ─── Employees ────────────────────────────────────────────────────────────────
@@ -108,14 +109,14 @@ export async function getCandidates(status?: string): Promise<Candidate[]> {
 
   // Fetch job openings separately
   const jobOpeningIds = [...new Set(candidates.map(c => c.jobOpeningId).filter((id): id is string => !!id))];
-  let jobOpeningsMap: Record<string, { id: string; title: string; slug: string; roleType?: string }> = {};
+  let jobOpeningsMap: Record<string, Pick<JobOpening, 'id' | 'title' | 'slug' | 'roleType'>> = {};
   if (jobOpeningIds.length > 0) {
     const { data: jobOpenings } = await supabaseAdmin
       .from('JobOpening')
       .select('id, title, slug, roleType')
       .in('id', jobOpeningIds);
     if (jobOpenings) jobOpeningsMap = Object.fromEntries(
-      (jobOpenings as { id: string; title: string; slug: string; roleType?: string }[]).map(j => [j.id, j])
+      (jobOpenings as Pick<JobOpening, 'id' | 'title' | 'slug' | 'roleType'>[]).map(j => [j.id, j])
     );
   }
 
