@@ -86,7 +86,7 @@ export async function getCandidates(status?: string): Promise<Candidate[]> {
     .select(
       `id, status, name, email, phone, age, location, salaryExpectation,
        consentGiven, consentDate, consentExpiresAt, leadSource, leadCampaignId,
-       assignedToId, jobOpeningId, createdAt, updatedAt`
+       assignedToId, jobOpeningId, stageUpdatedAt, createdAt, updatedAt`
     )
     .order('createdAt', { ascending: false });
 
@@ -121,11 +121,30 @@ export async function getCandidates(status?: string): Promise<Candidate[]> {
     );
   }
 
+  // Batch fetch latest call log per candidate (accountability: last contact status)
+  const allIds = candidates.map(c => c.id);
+  let callLogMap: Record<string, { status: string; createdAt: string }> = {};
+  if (allIds.length > 0) {
+    const { data: callLogs } = await supabaseAdmin
+      .from('CallLog')
+      .select('candidateId, status, createdAt')
+      .in('candidateId', allIds)
+      .order('createdAt', { ascending: false });
+    if (callLogs) {
+      for (const log of callLogs as { candidateId: string; status: string; createdAt: string }[]) {
+        if (!callLogMap[log.candidateId]) {
+          callLogMap[log.candidateId] = { status: log.status, createdAt: log.createdAt };
+        }
+      }
+    }
+  }
+
   return candidates.map(c =>
     splitCandidateName({
       ...c,
       assignedTo: c.assignedToId ? usersMap[c.assignedToId] : undefined,
       jobOpening: c.jobOpeningId ? jobOpeningsMap[c.jobOpeningId] : undefined,
+      lastCallLog: callLogMap[c.id] ?? null,
     })
   );
 }

@@ -166,6 +166,21 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
     candidates.map(c => c.jobOpening?.roleType).filter((r): r is VacatureRol => !!r)
   )] as VacatureRol[];
 
+  // Pipeline health metrics (computed from live candidate state)
+  const activeCandidates = candidates.filter(c => !['HIRED', 'REJECTED'].includes(c.status));
+  const neverCalled = activeCandidates.filter(c => !c.lastCallLog);
+  const staleDays = 4;
+  const staleLeads = activeCandidates.filter(c => {
+    const ref = c.stageUpdatedAt ?? c.createdAt;
+    const days = Math.floor((Date.now() - new Date(ref).getTime()) / (1000 * 60 * 60 * 24));
+    return days >= staleDays;
+  });
+  const bereiktVandaag = candidates.filter(c => {
+    if (c.lastCallLog?.status !== 'BEREIKT') return false;
+    const hours = Math.floor((Date.now() - new Date(c.lastCallLog.createdAt).getTime()) / (1000 * 60 * 60));
+    return hours < 24;
+  });
+
   return (
     <div className="space-y-5 fade-in">
       {/* Header */}
@@ -184,6 +199,28 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
           Nieuwe kandidaat
         </button>
       </div>
+
+      {/* Pipeline health stats */}
+      {activeCandidates.length > 0 && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2.5">
+            <p className="text-[10px] text-[#9ca3af] uppercase tracking-wide mb-0.5">Actief</p>
+            <p className="text-lg font-semibold text-white">{activeCandidates.length}</p>
+          </div>
+          <div className={`rounded-lg border px-3 py-2.5 ${neverCalled.length > 0 ? 'border-red-500/30 bg-red-500/5' : 'border-[#363848] bg-[#1e2028]'}`}>
+            <p className="text-[10px] text-[#9ca3af] uppercase tracking-wide mb-0.5">Niet gebeld</p>
+            <p className={`text-lg font-semibold ${neverCalled.length > 0 ? 'text-red-400' : 'text-white'}`}>{neverCalled.length}</p>
+          </div>
+          <div className={`rounded-lg border px-3 py-2.5 ${staleLeads.length > 0 ? 'border-[#f7a247]/30 bg-[#f7a247]/5' : 'border-[#363848] bg-[#1e2028]'}`}>
+            <p className="text-[10px] text-[#9ca3af] uppercase tracking-wide mb-0.5">Stagnerend (&gt;{staleDays}d)</p>
+            <p className={`text-lg font-semibold ${staleLeads.length > 0 ? 'text-[#f7a247]' : 'text-white'}`}>{staleLeads.length}</p>
+          </div>
+          <div className={`rounded-lg border px-3 py-2.5 ${bereiktVandaag.length > 0 ? 'border-[#68b0a6]/30 bg-[#68b0a6]/5' : 'border-[#363848] bg-[#1e2028]'}`}>
+            <p className="text-[10px] text-[#9ca3af] uppercase tracking-wide mb-0.5">Bereikt vandaag</p>
+            <p className={`text-lg font-semibold ${bereiktVandaag.length > 0 ? 'text-[#68b0a6]' : 'text-white'}`}>{bereiktVandaag.length}</p>
+          </div>
+        </div>
+      )}
 
       {/* Role filter */}
       {activeRoles.length > 0 && (

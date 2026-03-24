@@ -200,6 +200,7 @@ export interface Candidate {
   updatedAt: string;
   candidateNotes?: CandidateNote[];
   interviewScores?: InterviewScore[];
+  lastCallLog?: { status: string; createdAt: string } | null;
 }
 
 export interface JobOpening {

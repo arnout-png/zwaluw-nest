@@ -8,7 +8,6 @@ import type { Candidate, CandidateStatus } from '@/types';
 interface CandidateCardProps {
   candidate: Candidate;
   onMove: (id: string, newStatus: CandidateStatus) => void;
-  /** When true, renders as a floating overlay copy (no drag re-init, no link) */
   overlay?: boolean;
 }
 
@@ -22,20 +21,10 @@ const NEXT_STATUS: Partial<Record<CandidateStatus, CandidateStatus>> = {
 
 const NEXT_LABEL: Partial<Record<CandidateStatus, string>> = {
   NEW_LEAD: 'Pre-screening →',
-  PRE_SCREENING: 'Interview →',
-  SCREENING_DONE: 'Interview →',
+  PRE_SCREENING: 'Sollicitatiegesprek →',
+  SCREENING_DONE: 'Sollicitatiegesprek →',
   INTERVIEW: 'Reserve bank →',
   RESERVE_BANK: 'Aangenomen →',
-};
-
-const LEAD_SOURCE_LABEL: Record<string, string> = {
-  FACEBOOK: 'Facebook',
-  LINKEDIN: 'LinkedIn',
-  INDEED: 'Indeed',
-  REFERRAL: 'Referral',
-  MANUAL: 'Handmatig',
-  GOOGLE: 'Google',
-  OTHER: 'Overig',
 };
 
 const LEAD_SOURCE_COLOR: Record<string, string> = {
@@ -48,11 +37,85 @@ const LEAD_SOURCE_COLOR: Record<string, string> = {
   OTHER: 'bg-[#363848] text-[#9ca3af]',
 };
 
-function consentDaysLeft(expiresAt?: string | null) {
+const LEAD_SOURCE_LABEL: Record<string, string> = {
+  FACEBOOK: 'Facebook',
+  LINKEDIN: 'LinkedIn',
+  INDEED: 'Indeed',
+  REFERRAL: 'Referral',
+  MANUAL: 'Handmatig',
+  GOOGLE: 'Google',
+  OTHER: 'Overig',
+};
+
+const CALL_STATUS_COLORS: Record<string, string> = {
+  GEEN_GEHOOR: 'text-[#9ca3af]',
+  VOICEMAIL:   'text-[#f7a247]',
+  BEREIKT:     'text-[#68b0a6]',
+  TERUGBELLEN: 'text-blue-400',
+};
+
+const CALL_STATUS_ICONS: Record<string, string> = {
+  GEEN_GEHOOR: '📵',
+  VOICEMAIL:   '📬',
+  BEREIKT:     '✅',
+  TERUGBELLEN: '🔁',
+};
+
+const CALL_STATUS_LABELS: Record<string, string> = {
+  GEEN_GEHOOR: 'Geen gehoor',
+  VOICEMAIL:   'Voicemail',
+  BEREIKT:     'Bereikt',
+  TERUGBELLEN: 'Terugbellen',
+};
+
+function daysAgo(dateStr?: string | null): number | null {
+  if (!dateStr) return null;
+  return Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function hoursAgo(dateStr?: string | null): number | null {
+  if (!dateStr) return null;
+  return Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60));
+}
+
+function formatTimeAgo(dateStr: string): string {
+  const h = hoursAgo(dateStr) ?? 0;
+  if (h < 1) return 'zojuist';
+  if (h < 24) return `${h}u geleden`;
+  const d = Math.floor(h / 24);
+  return `${d}d geleden`;
+}
+
+function consentDaysLeft(expiresAt?: string | null): number | null {
   if (!expiresAt) return null;
   const expires = new Date(expiresAt);
-  const today = new Date(); today.setHours(0,0,0,0);
-  return Math.ceil((expires.getTime() - today.getTime()) / (1000*60*60*24));
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.ceil((expires.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/** Urgency left-border color based on call log + stage age */
+function getUrgencyBorder(candidate: Candidate): string {
+  const stageDays = daysAgo(candidate.stageUpdatedAt ?? candidate.createdAt);
+  const hasCall = !!candidate.lastCallLog;
+  const lastCallHours = hoursAgo(candidate.lastCallLog?.createdAt);
+
+  // NEW_LEAD: never called + > 24h old → urgent red
+  if (candidate.status === 'NEW_LEAD' && !hasCall && (stageDays ?? 0) >= 1) {
+    return 'border-l-2 border-l-red-500/70';
+  }
+  // NEW_LEAD: called but no result yet, > 3 days → orange nudge
+  if (candidate.status === 'NEW_LEAD' && (stageDays ?? 0) >= 3) {
+    return 'border-l-2 border-l-[#f7a247]/60';
+  }
+  // Any stage: no activity in > 5 days → orange
+  if ((lastCallHours ?? 9999) > 24 * 5 && (stageDays ?? 0) > 5) {
+    return 'border-l-2 border-l-[#f7a247]/60';
+  }
+  // Recently reached (good signal) → teal
+  if (candidate.lastCallLog?.status === 'BEREIKT' && (lastCallHours ?? 9999) < 48) {
+    return 'border-l-2 border-l-[#68b0a6]/70';
+  }
+  return '';
 }
 
 export function CandidateCard({ candidate, onMove, overlay = false }: CandidateCardProps) {
@@ -66,18 +129,19 @@ export function CandidateCard({ candidate, onMove, overlay = false }: CandidateC
   const nextStatus = NEXT_STATUS[candidate.status];
   const nextLabel = NEXT_LABEL[candidate.status];
   const daysLeft = consentDaysLeft(candidate.consentExpiresAt);
+  const urgencyBorder = overlay ? '' : getUrgencyBorder(candidate);
+  const stageDays = daysAgo(candidate.stageUpdatedAt ?? candidate.createdAt);
 
   return (
     <div
       ref={overlay ? undefined : setNodeRef}
       style={style}
-      className={`rounded-lg border border-[#363848] bg-[#1e2028] p-3 space-y-2 transition-opacity ${
+      className={`rounded-lg border border-[#363848] bg-[#1e2028] p-3 space-y-2 transition-opacity ${urgencyBorder} ${
         isDragging ? 'opacity-40' : 'opacity-100'
       } ${overlay ? 'shadow-2xl rotate-1 cursor-grabbing' : ''}`}
     >
       {/* Drag handle + Name + consent badge */}
       <div className="flex items-start gap-2">
-        {/* Drag handle — spread listeners + attributes here */}
         <button
           type="button"
           {...(overlay ? {} : listeners)}
@@ -122,7 +186,33 @@ export function CandidateCard({ candidate, onMove, overlay = false }: CandidateC
         </div>
       </div>
 
-      {/* Meta */}
+      {/* Call log status + stage age row */}
+      <div className="flex items-center justify-between gap-2">
+        {/* Last call status */}
+        {candidate.lastCallLog ? (
+          <span className={`flex items-center gap-1 text-[10px] font-medium ${CALL_STATUS_COLORS[candidate.lastCallLog.status] ?? 'text-[#9ca3af]'}`}>
+            <span>{CALL_STATUS_ICONS[candidate.lastCallLog.status]}</span>
+            {CALL_STATUS_LABELS[candidate.lastCallLog.status]}
+            <span className="text-[#9ca3af] font-normal">· {formatTimeAgo(candidate.lastCallLog.createdAt)}</span>
+          </span>
+        ) : (
+          <span className="flex items-center gap-1 text-[10px] font-medium text-red-400/80">
+            <span>📵</span>
+            Niet gebeld
+          </span>
+        )}
+
+        {/* Days in stage */}
+        {stageDays !== null && stageDays > 0 && (
+          <span className={`text-[10px] shrink-0 ${
+            stageDays >= 5 ? 'text-[#f7a247]' : 'text-[#9ca3af]'
+          }`}>
+            {stageDays}d in fase
+          </span>
+        )}
+      </div>
+
+      {/* Meta row */}
       <div className="flex items-center gap-2 flex-wrap text-xs text-[#9ca3af]">
         {candidate.salaryExpectation && (
           <span>€{candidate.salaryExpectation}</span>
@@ -147,7 +237,7 @@ export function CandidateCard({ candidate, onMove, overlay = false }: CandidateC
         </div>
       )}
 
-      {/* Move button — hidden in overlay */}
+      {/* Move button */}
       {!overlay && nextStatus && nextLabel && (
         <button
           onClick={() => onMove(candidate.id, nextStatus)}
