@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -12,8 +12,12 @@ import {
 } from '@dnd-kit/core';
 import { KanbanColumn } from '@/components/recruitment/kanban-column';
 import { CandidateCard } from '@/components/recruitment/candidate-card';
+import { WervingTable } from './werving-table';
 import type { Candidate, CandidateStatus, VacatureRol } from '@/types';
 import { VACATURE_ROL_LABELS } from '@/types';
+
+type ViewMode = 'kanban' | 'table';
+const VIEW_LS_KEY = 'werving-view';
 
 interface WervingClientProps {
   initialCandidates: Candidate[];
@@ -49,9 +53,20 @@ const STATUS_TO_COLUMN: Record<CandidateStatus, CandidateStatus> = {
 
 export function WervingClient({ initialCandidates }: WervingClientProps) {
   const [candidates, setCandidates] = useState<Candidate[]>(initialCandidates);
+  const [view, setView] = useState<ViewMode>('kanban');
   const [roleFilter, setRoleFilter] = useState<VacatureRol | 'ALL'>('ALL');
   const [activeCandidate, setActiveCandidate] = useState<Candidate | null>(null);
   const [showForm, setShowForm] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(VIEW_LS_KEY);
+    if (saved === 'table' || saved === 'kanban') setView(saved);
+  }, []);
+
+  function switchView(v: ViewMode) {
+    setView(v);
+    localStorage.setItem(VIEW_LS_KEY, v);
+  }
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<NewCandidateForm>({
     firstName: '', lastName: '', email: '', phone: '', salaryExpectation: '', source: '',
@@ -189,15 +204,38 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
           <h1 className="text-xl font-semibold text-white">Werving</h1>
           <p className="mt-1 text-sm text-[#9ca3af]">{visibleCandidates.length} kandidaten{roleFilter !== 'ALL' ? ` · ${VACATURE_ROL_LABELS[roleFilter]}` : ' in pipeline'}</p>
         </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 rounded-lg bg-[#68b0a6] px-4 py-2 text-sm font-medium text-white hover:bg-[#7ec4ba] transition-colors"
-        >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Nieuwe kandidaat
-        </button>
+        <div className="flex items-center gap-2">
+          {/* View toggle */}
+          <div className="flex rounded-lg border border-[#363848] overflow-hidden">
+            <button
+              onClick={() => switchView('kanban')}
+              title="Kanban"
+              className={`px-2.5 py-1.5 transition-colors ${view === 'kanban' ? 'bg-[#363848] text-white' : 'text-[#9ca3af] hover:text-white'}`}
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+              </svg>
+            </button>
+            <button
+              onClick={() => switchView('table')}
+              title="Tabel"
+              className={`px-2.5 py-1.5 border-l border-[#363848] transition-colors ${view === 'table' ? 'bg-[#363848] text-white' : 'text-[#9ca3af] hover:text-white'}`}
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 14h18M10 4v16M7 4H5a2 2 0 00-2 2v12a2 2 0 002 2h2m10-16h2a2 2 0 012 2v12a2 2 0 01-2 2h-2" />
+              </svg>
+            </button>
+          </div>
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="flex items-center gap-2 rounded-lg bg-[#68b0a6] px-4 py-2 text-sm font-medium text-white hover:bg-[#7ec4ba] transition-colors"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            <span className="hidden sm:inline">Nieuwe kandidaat</span>
+          </button>
+        </div>
       </div>
 
       {/* Pipeline health stats */}
@@ -300,39 +338,46 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
         </div>
       )}
 
-      {/* Kanban board with DnD */}
-      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="overflow-x-auto pb-4">
-          <div className="flex gap-4 min-w-max">
-            {COLUMNS.map((col) => {
-              const colCandidates = visibleCandidates.filter((c) =>
-                (col.statuses as string[]).includes(c.status)
-              );
-              return (
-                <KanbanColumn
-                  key={col.title}
-                  title={col.title}
-                  status={col.statuses[0]}
-                  candidates={colCandidates}
-                  color={col.color}
-                  onMove={handleMove}
-                />
-              );
-            })}
-          </div>
-        </div>
+      {/* Table view */}
+      {view === 'table' && (
+        <WervingTable candidates={visibleCandidates} />
+      )}
 
-        {/* Floating drag overlay */}
-        <DragOverlay>
-          {activeCandidate ? (
-            <CandidateCard
-              candidate={activeCandidate}
-              onMove={handleMove}
-              overlay
-            />
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+      {/* Kanban board with DnD */}
+      {view === 'kanban' && (
+        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <div className="overflow-x-auto pb-4">
+            <div className="flex gap-4 min-w-max">
+              {COLUMNS.map((col) => {
+                const colCandidates = visibleCandidates.filter((c) =>
+                  (col.statuses as string[]).includes(c.status)
+                );
+                return (
+                  <KanbanColumn
+                    key={col.title}
+                    title={col.title}
+                    status={col.statuses[0]}
+                    candidates={colCandidates}
+                    color={col.color}
+                    onMove={handleMove}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Floating drag overlay */}
+          <DragOverlay>
+            {activeCandidate ? (
+              <CandidateCard
+                candidate={activeCandidate}
+                onMove={handleMove}
+                overlay
+              />
+            ) : null}
+          </DragOverlay>
+        </DndContext>
+      )}
     </div>
   );
 }
