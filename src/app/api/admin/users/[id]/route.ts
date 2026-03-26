@@ -12,12 +12,13 @@ export async function PATCH(
 
   const { id } = await params;
   const body = await req.json();
-  const { name, role, isActive, phonePersonal, jobTitle } = body as {
+  const { name, role, isActive, phonePersonal, jobTitle, permissions } = body as {
     name?: string;
     role?: string;
     isActive?: boolean;
     phonePersonal?: string;
     jobTitle?: string;
+    permissions?: string;
   };
 
   // Update User fields
@@ -26,6 +27,7 @@ export async function PATCH(
   if (role !== undefined) userUpdate.role = role;
   if (isActive !== undefined) userUpdate.isActive = isActive;
   if (jobTitle !== undefined) userUpdate.jobTitle = jobTitle.trim() || null;
+  if (permissions !== undefined) userUpdate.permissions = permissions || null;
 
   if (Object.keys(userUpdate).length > 0) {
     const { error } = await supabaseAdmin

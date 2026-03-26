@@ -1,12 +1,14 @@
 'use client';
 
 import { createContext, useContext } from 'react';
+import type { UserPermissions } from '@/types';
 
 export interface UserContextValue {
   userId: string;
   email: string;
   name: string;
   role: string;
+  permissions: UserPermissions;
 }
 
 const UserContext = createContext<UserContextValue | null>(null);

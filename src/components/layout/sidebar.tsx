@@ -198,13 +198,16 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export function Sidebar() {
-  const { role, name, email } = useUser();
+  const { role, name, email, permissions } = useUser();
   const pathname = usePathname();
   const router = useRouter();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const visibleItems = NAV_ITEMS.filter((item) => item.roles.includes(role));
+  const extraNavHrefs = permissions?.extraNav ?? [];
+  const visibleItems = NAV_ITEMS.filter(
+    (item) => item.roles.includes(role) || extraNavHrefs.includes(item.href)
+  );
 
   const initials = name
     .split(' ')

@@ -42,6 +42,7 @@ model User {
   jobTitle     String?
   role         Role
   isActive     Boolean  @default(true)
+  permissions  String?  // JSON: UserPermissions (extraNav[], canManageLeave, canViewAllCandidates, canEditCandidates, canViewSalaries, canViewDossiers)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -239,6 +240,11 @@ model EmployeeProfile {
   // Leave balance (annual tracking)
   leaveBalanceDays Float @default(25)  // Standard Dutch = 20 minimum + 5 bovenwettelijk
   leaveUsedDays    Float @default(0)
+
+  // Google Calendar OAuth integration
+  googleRefreshToken String?  // OAuth2 refresh token
+  googleCalendarId   String?  // Usually "primary"
+  googleSyncEnabled  Boolean  @default(false)
 
   // Nmbrs HR integration
   nmbrsEmployeeId String?   // Nmbrs numeric employee ID

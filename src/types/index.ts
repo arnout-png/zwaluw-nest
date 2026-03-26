@@ -1,3 +1,41 @@
+// ─── User permissions ─────────────────────────────────────────────────────────
+
+export interface UserPermissions {
+  /** Extra nav hrefs accessible beyond the user's role defaults */
+  extraNav: string[];
+  /** Can approve/reject leave requests of other employees */
+  canManageLeave: boolean;
+  /** Can view all candidates, not only own assigned ones */
+  canViewAllCandidates: boolean;
+  /** Can edit candidate status, data and pipeline stage */
+  canEditCandidates: boolean;
+  /** Can view salary data in HR profiles */
+  canViewSalaries: boolean;
+  /** Can view/edit HR dossier entries */
+  canViewDossiers: boolean;
+}
+
+export function defaultPermissions(): UserPermissions {
+  return {
+    extraNav: [],
+    canManageLeave: false,
+    canViewAllCandidates: false,
+    canEditCandidates: false,
+    canViewSalaries: false,
+    canViewDossiers: false,
+  };
+}
+
+export function parsePermissions(raw: string | null | undefined): UserPermissions {
+  if (!raw) return defaultPermissions();
+  try {
+    const parsed = JSON.parse(raw);
+    return { ...defaultPermissions(), ...parsed };
+  } catch {
+    return defaultPermissions();
+  }
+}
+
 // ─── Enums / string unions ────────────────────────────────────────────────────
 
 export type Role =

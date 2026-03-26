@@ -12,6 +12,7 @@ export interface UserWithPhone {
   isActive: boolean;
   createdAt: string;
   phonePersonal?: string | null;
+  permissions?: string | null;
 }
 
 export default async function GebruikersPage() {
@@ -19,10 +20,10 @@ export default async function GebruikersPage() {
   if (!session) redirect('/login');
   if (session.role !== 'ADMIN') redirect('/dashboard');
 
-  // Fetch all users
+  // Fetch all users including permissions
   const { data: users } = await supabaseAdmin
     .from('User')
-    .select('id, email, name, jobTitle, role, isActive, createdAt')
+    .select('id, email, name, jobTitle, role, isActive, createdAt, permissions')
     .order('name');
 
   // Fetch all employee profiles for phone numbers
