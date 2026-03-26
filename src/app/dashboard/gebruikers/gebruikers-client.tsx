@@ -33,6 +33,7 @@ interface NewUserForm {
   password: string;
   role: Role;
   phonePersonal: string;
+  jobTitle: string;
 }
 
 interface Props {
@@ -50,7 +51,7 @@ export function GebruikersClient({ initialUsers }: Props) {
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState<NewUserForm>({
-    name: '', email: '', password: '', role: 'PLANNER', phonePersonal: '',
+    name: '', email: '', password: '', role: 'PLANNER', phonePersonal: '', jobTitle: '',
   });
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -64,7 +65,7 @@ export function GebruikersClient({ initialUsers }: Props) {
 
   function startEdit(u: UserWithPhone) {
     setEditingId(u.id);
-    setEditForm({ name: u.name, role: u.role as Role, isActive: u.isActive, phonePersonal: u.phonePersonal ?? '' });
+    setEditForm({ name: u.name, jobTitle: u.jobTitle ?? '', role: u.role as Role, isActive: u.isActive, phonePersonal: u.phonePersonal ?? '' });
     setError('');
   }
 
@@ -112,6 +113,7 @@ export function GebruikersClient({ initialUsers }: Props) {
           email: createForm.email.trim(),
           password: createForm.password,
           role: createForm.role,
+          jobTitle: createForm.jobTitle.trim() || undefined,
           phonePersonal: createForm.phonePersonal.trim() || undefined,
         }),
       });
@@ -126,7 +128,7 @@ export function GebruikersClient({ initialUsers }: Props) {
       };
       setUsers(prev => [newUser, ...prev]);
       setShowCreate(false);
-      setCreateForm({ name: '', email: '', password: '', role: 'PLANNER', phonePersonal: '' });
+      setCreateForm({ name: '', email: '', password: '', role: 'PLANNER', phonePersonal: '', jobTitle: '' });
       router.refresh();
     } catch {
       setError('Verbinding mislukt.');
@@ -192,13 +194,15 @@ export function GebruikersClient({ initialUsers }: Props) {
               { key: 'name', label: 'Naam', required: true },
               { key: 'email', label: 'E-mailadres', required: true, type: 'email' },
               { key: 'password', label: 'Wachtwoord', required: true, type: 'password' },
+              { key: 'jobTitle', label: 'Functie (intern)', required: false, placeholder: 'bijv. Commercieel directeur' },
               { key: 'phonePersonal', label: 'Telefoonnummer', required: false, type: 'tel' },
-            ].map(({ key, label, required, type }) => (
+            ].map(({ key, label, required, type, placeholder }) => (
               <div key={key}>
                 <label className="mb-1 block text-xs font-medium text-[#9ca3af]">{label}</label>
                 <input
                   type={type ?? 'text'}
                   required={required}
+                  placeholder={placeholder}
                   value={createForm[key as keyof NewUserForm]}
                   onChange={e => setCreateForm(f => ({ ...f, [key]: e.target.value }))}
                   className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white placeholder-[#9ca3af] focus:border-[#68b0a6] focus:outline-none"
@@ -295,6 +299,9 @@ export function GebruikersClient({ initialUsers }: Props) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-medium text-white truncate">{u.name}</span>
+                  {u.jobTitle && (
+                    <span className="text-xs text-[#9ca3af] truncate">{u.jobTitle}</span>
+                  )}
                   <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${ROLE_COLORS[u.role as Role] ?? 'bg-[#363848] text-[#9ca3af]'}`}>
                     {ROLE_LABELS[u.role as Role] ?? u.role}
                   </span>
@@ -322,7 +329,7 @@ export function GebruikersClient({ initialUsers }: Props) {
             {/* Inline edit form */}
             {editingId === u.id && (
               <div className="border-t border-[#363848] px-4 pb-4 pt-3">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
                   <div>
                     <label className="mb-1 block text-xs font-medium text-[#9ca3af]">Naam</label>
                     <input
@@ -330,6 +337,16 @@ export function GebruikersClient({ initialUsers }: Props) {
                       value={editForm.name ?? ''}
                       onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
                       className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white focus:border-[#68b0a6] focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-[#9ca3af]">Functie (intern)</label>
+                    <input
+                      type="text"
+                      value={editForm.jobTitle ?? ''}
+                      onChange={e => setEditForm(f => ({ ...f, jobTitle: e.target.value }))}
+                      placeholder="bijv. Commercieel directeur"
+                      className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white placeholder-[#9ca3af] focus:border-[#68b0a6] focus:outline-none"
                     />
                   </div>
                   <div>

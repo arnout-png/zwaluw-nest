@@ -7,6 +7,7 @@ export interface UserWithPhone {
   id: string;
   email: string;
   name: string;
+  jobTitle?: string | null;
   role: string;
   isActive: boolean;
   createdAt: string;
@@ -21,7 +22,7 @@ export default async function GebruikersPage() {
   // Fetch all users
   const { data: users } = await supabaseAdmin
     .from('User')
-    .select('id, email, name, role, isActive, createdAt')
+    .select('id, email, name, jobTitle, role, isActive, createdAt')
     .order('name');
 
   // Fetch all employee profiles for phone numbers

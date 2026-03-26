@@ -23,11 +23,10 @@ export default async function InstellingenPage({
 
   const googleConnected = profile?.googleSyncEnabled === true;
 
-  // Fetch active ADMIN/PLANNER users for role assignment dropdowns
+  // Fetch all active users for role assignment dropdowns
   const { data: staffUsers } = await supabaseAdmin
     .from('User')
-    .select('id, name, role')
-    .in('role', ['ADMIN', 'PLANNER'])
+    .select('id, name, jobTitle, role')
     .eq('isActive', true)
     .order('name');
 
@@ -43,7 +42,7 @@ export default async function InstellingenPage({
       hasNmbrs={!!(process.env.NMBRS_USERNAME && process.env.NMBRS_TOKEN && process.env.NMBRS_DOMAIN)}
       hasLinkedIn={!!(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_ACCESS_TOKEN)}
       linkedinStatus={linkedin}
-      staffUsers={(staffUsers ?? []) as { id: string; name: string; role: string }[]}
+      staffUsers={(staffUsers ?? []) as { id: string; name: string; jobTitle?: string | null; role: string }[]}
     />
   );
 }

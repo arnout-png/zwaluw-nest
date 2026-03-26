@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
   const {
-    email, name, role, password,
+    email, name, role, password, jobTitle,
     department, startDate, phone, leaveBalance,
   } = body;
 
@@ -47,11 +47,12 @@ export async function POST(request: NextRequest) {
     .insert({
       email: email.toLowerCase().trim(),
       name,
+      jobTitle: jobTitle?.trim() || null,
       role,
       passwordHash,
       isActive: true,
     })
-    .select('id, email, name, role, isActive, createdAt, updatedAt')
+    .select('id, email, name, jobTitle, role, isActive, createdAt, updatedAt')
     .single();
 
   if (userError) {

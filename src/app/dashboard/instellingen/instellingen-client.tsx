@@ -24,7 +24,7 @@ interface Props {
   hasNmbrs: boolean;
   hasLinkedIn: boolean;
   linkedinStatus?: string;
-  staffUsers: { id: string; name: string; role: string }[];
+  staffUsers: { id: string; name: string; jobTitle?: string | null; role: string }[];
 }
 
 function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
@@ -698,7 +698,9 @@ LINKEDIN_WEBHOOK_SECRET=...  # optioneel, voor webhook verificatie`}
                 >
                   <option value="">— Geen toewijzing —</option>
                   {staffUsers.map((u) => (
-                    <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                    <option key={u.id} value={u.id}>
+                      {u.name}{u.jobTitle ? ` — ${u.jobTitle}` : ''}
+                    </option>
                   ))}
                 </select>
               </div>

@@ -39,6 +39,7 @@ model User {
   email        String   @unique
   passwordHash String
   name         String
+  jobTitle     String?
   role         Role
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
