@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/daily-checks",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/sync-sheets",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

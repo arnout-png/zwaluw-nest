@@ -1,17 +1,67 @@
-import { Resend } from 'resend';
+import { google } from 'googleapis';
 
-// Lazy initialization — Resend throws at construction if the key is missing.
-// All send functions are no-ops when RESEND_API_KEY is not set.
-let _resend: Resend | null = null;
-function getResend(): Resend {
-  if (!_resend) {
-    if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY is not set');
-    _resend = new Resend(process.env.RESEND_API_KEY);
-  }
-  return _resend;
+/**
+ * Gmail API transport via Google Workspace service account + domain-wide delegation.
+ *
+ * Setup (one-time, in Google Cloud Console):
+ *   1. Enable "Gmail API" on your project.
+ *   2. Go to Google Workspace Admin > Security > API Controls > Domain-wide Delegation.
+ *   3. Add the service account client_id with scope:
+ *      https://www.googleapis.com/auth/gmail.send
+ *
+ * Required env vars:
+ *   GOOGLE_SERVICE_ACCOUNT_CREDENTIALS  — already used for Sheets (base64 JSON)
+ *   GMAIL_SENDER                        — e.g. noreply@veiligdouchen.nl
+ */
+function getGmailClient() {
+  const credBase64 = process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS;
+  if (!credBase64) throw new Error('GOOGLE_SERVICE_ACCOUNT_CREDENTIALS not set');
+  const credentials = JSON.parse(Buffer.from(credBase64, 'base64').toString('utf-8'));
+  const sender = process.env.GMAIL_SENDER ?? 'noreply@veiligdouchen.nl';
+
+  const auth = new google.auth.JWT({
+    email:   credentials.client_email,
+    key:     credentials.private_key,
+    scopes:  ['https://www.googleapis.com/auth/gmail.send'],
+    subject: sender,   // impersonate this Workspace address
+  });
+
+  return { gmail: google.gmail({ version: 'v1', auth }), sender };
 }
 
-const FROM = process.env.EMAIL_FROM ?? 'ZwaluwNest <noreply@zwaluw.nl>';
+const FROM_NAME = 'ZwaluwNest';
+
+async function sendViaGmail(opts: {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+}): Promise<void> {
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS) {
+    console.warn('[Email] GOOGLE_SERVICE_ACCOUNT_CREDENTIALS niet ingesteld — e-mail overgeslagen');
+    return;
+  }
+
+  const { gmail, sender } = getGmailClient();
+
+  // Build RFC 2822 MIME message
+  const message = [
+    `From: ${FROM_NAME} <${sender}>`,
+    `To: ${opts.to}`,
+    `Subject: ${opts.subject}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: text/html; charset=UTF-8`,
+    '',
+    opts.html,
+  ].join('\r\n');
+
+  const encoded = Buffer.from(message).toString('base64url');
+
+  await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw: encoded },
+  });
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -100,8 +150,7 @@ export async function sendLeaveApprovedEmail(opts: {
     </table>
   `;
 
-  return getResend().emails.send({
-    from: FROM,
+  return sendViaGmail({
     to: opts.to,
     subject: `Verlof goedgekeurd — ${opts.days} dag${opts.days !== 1 ? 'en' : ''} ${label.toLowerCase()}`,
     html: htmlWrapper(content, 'Verlof goedgekeurd'),
@@ -141,8 +190,7 @@ export async function sendLeaveRejectedEmail(opts: {
     </table>
   `;
 
-  return getResend().emails.send({
-    from: FROM,
+  return sendViaGmail({
     to: opts.to,
     subject: `Verlofaanvraag afgewezen — ${label}`,
     html: htmlWrapper(content, 'Verlof afgewezen'),
@@ -171,8 +219,7 @@ export async function sendContractExpiryEmail(opts: {
     </p>
   `;
 
-  return getResend().emails.send({
-    from: FROM,
+  return sendViaGmail({
     to: opts.to,
     subject: `${urgent ? '[URGENT] ' : ''}Contract ${opts.employeeName} verloopt over ${opts.daysLeft} dagen`,
     html: htmlWrapper(content, 'Contract verloopt'),
@@ -221,8 +268,7 @@ export async function sendNewCandidateEmail(opts: {
     ${btn('Bekijk in Werving Kanban', opts.portalUrl)}
   `;
 
-  return getResend().emails.send({
-    from: FROM,
+  return sendViaGmail({
     to: opts.to,
     subject: `Nieuwe kandidaat: ${opts.candidateName} (${opts.source})`,
     html: htmlWrapper(content, 'Nieuwe kandidaat'),
@@ -254,8 +300,7 @@ export async function sendPoortwachterEmail(opts: {
     </p>
   `;
 
-  return getResend().emails.send({
-    from: FROM,
+  return sendViaGmail({
     to: opts.to,
     subject: `[Poortwachter] Week ${opts.week} actie vereist — ${opts.employeeName}`,
     html: htmlWrapper(content, `Poortwachter Week ${opts.week}`),
@@ -286,8 +331,7 @@ export async function sendPrescreeningEmail(opts: {
     </p>
   `;
 
-  return getResend().emails.send({
-    from: FROM,
+  return sendViaGmail({
     to: opts.to,
     subject: 'Uitnodiging pre-screening — Veilig Douchen',
     html: htmlWrapper(content, 'Pre-screening uitnodiging'),
@@ -313,8 +357,7 @@ export async function sendReviewRequestEmail(opts: {
     </p>
   `;
 
-  return getResend().emails.send({
-    from: FROM,
+  return sendViaGmail({
     to: opts.to,
     subject: 'Hoe was uw ervaring met Veilig Douchen?',
     html: htmlWrapper(content, 'Review verzoek'),
@@ -349,8 +392,7 @@ export async function sendInterviewInviteEmail(opts: {
     </p>
   `;
 
-  return getResend().emails.send({
-    from: FROM,
+  return sendViaGmail({
     to: opts.to,
     subject: 'Uitnodiging gesprek — Veilig Douchen',
     html: htmlWrapper(content, 'Uitnodiging gesprek'),
@@ -365,7 +407,7 @@ export async function sendAppointmentConfirmationCandidate(opts: {
   time: string;
   location: string;
 }) {
-  if (!process.env.RESEND_API_KEY) return;
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS) return;
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Afspraak bevestigd ✓</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
@@ -395,8 +437,7 @@ export async function sendAppointmentConfirmationCandidate(opts: {
     </p>
   `;
 
-  return getResend().emails.send({
-    from: FROM,
+  return sendViaGmail({
     to: opts.to,
     subject: `Afspraak bevestigd — ${opts.date} om ${opts.time} uur`,
     html: htmlWrapper(content, 'Afspraak bevestigd'),
@@ -411,7 +452,7 @@ export async function sendAppointmentNotificationInternal(opts: {
   date: string;
   time: string;
 }) {
-  if (!process.env.RESEND_API_KEY) return;
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS) return;
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Afspraak ingepland 📅</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
@@ -441,8 +482,7 @@ export async function sendAppointmentNotificationInternal(opts: {
     </p>
   `;
 
-  return getResend().emails.send({
-    from: FROM,
+  return sendViaGmail({
     to: opts.to,
     subject: `Afspraak ingepland: ${opts.candidateName} — ${opts.date} ${opts.time}`,
     html: htmlWrapper(content, 'Afspraak ingepland'),
@@ -471,8 +511,7 @@ export async function sendRejectionEmail(opts: {
     </div>
   `;
 
-  return getResend().emails.send({
-    from: FROM,
+  return sendViaGmail({
     to: opts.to,
     subject: 'Terugkoppeling sollicitatie — Veilig Douchen',
     html: htmlWrapper(content, 'Terugkoppeling sollicitatie'),

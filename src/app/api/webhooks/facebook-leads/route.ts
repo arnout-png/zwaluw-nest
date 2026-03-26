@@ -165,7 +165,8 @@ export async function POST(request: NextRequest) {
 
       // Log to Google Sheets (best-effort)
       try {
-        await appendLeadToSheet({
+        const sheetId = process.env.GOOGLE_SHEETS_IDS?.split(',')[0] ?? process.env.GOOGLE_SHEETS_ID ?? '';
+        await appendLeadToSheet(sheetId, {
           date: new Date().toLocaleDateString('nl-NL'),
           name: candidateName,
           email: email || '',

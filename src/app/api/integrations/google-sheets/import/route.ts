@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
-import { readLeadsFromSheet } from '@/lib/google-sheets';
+import { readAllSheetLeads } from '@/lib/google-sheets';
 
 /**
  * GET  /api/integrations/google-sheets/import
- *   Returns all leads from the Google Sheet as preview data.
+ *   Preview all leads from all configured sheets.
  *
  * POST /api/integrations/google-sheets/import
- *   Body: { ids: string[] }  — array of ZwaluwNest IDs to skip (already exist)
- *   Imports all rows that don't already exist as Candidates.
+ *   Import new leads into ZwaluwNest as Candidates.
+ *   Deduplicates by Facebook Lead ID and by email.
+ *   Adds leadStatus column content as a CandidateNote.
  */
 
 export async function GET() {
@@ -18,11 +19,14 @@ export async function GET() {
   if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
 
   try {
-    const leads = await readLeadsFromSheet();
-    return NextResponse.json({ data: leads });
+    const leads = await readAllSheetLeads();
+    return NextResponse.json({ data: leads, total: leads.length });
   } catch (err) {
     console.error('Google Sheets read error:', err);
-    return NextResponse.json({ error: 'Kan Google Sheet niet lezen. Controleer de instellingen.' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Kan Google Sheet niet lezen. Controleer de instellingen.' },
+      { status: 500 }
+    );
   }
 }
 
@@ -31,74 +35,147 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
   if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
 
-  const body = await request.json();
-  const { skipIds = [] }: { skipIds: string[] } = body;
+  const body = await request.json().catch(() => ({}));
+  const dryRun = body.dryRun === true;
 
   try {
-    const leads = await readLeadsFromSheet();
+    const leads = await readAllSheetLeads();
 
-    // Filter out leads that already exist or are in the skip list
-    const toImport = leads.filter((l) => !l.zwaluwId || !skipIds.includes(l.zwaluwId));
+    // Collect existing Facebook Lead IDs for deduplication
+    const { data: existingByFbId } = await supabaseAdmin
+      .from('Candidate')
+      .select('leadCampaignId')
+      .not('leadCampaignId', 'is', null)
+      .like('leadCampaignId', 'l:%');
 
-    const inserted: string[] = [];
+    const existingFbIds = new Set(
+      (existingByFbId ?? []).map((c: { leadCampaignId: string }) => c.leadCampaignId)
+    );
+
+    const { data: existingByEmail } = await supabaseAdmin
+      .from('Candidate')
+      .select('email');
+
+    const existingEmails = new Set(
+      (existingByEmail ?? []).map((c: { email: string }) => c.email.toLowerCase().trim())
+    );
+
+    // Use first ADMIN user as note author for automated imports
+    const { data: adminUser } = await supabaseAdmin
+      .from('User')
+      .select('id')
+      .eq('role', 'ADMIN')
+      .eq('isActive', true)
+      .limit(1)
+      .maybeSingle();
+
+    const noteAuthorId = adminUser?.id ?? null;
+
+    const imported: string[] = [];
     const skipped: string[] = [];
+    const errors: string[] = [];
 
-    for (const lead of toImport) {
-      if (!lead.email && !lead.name) {
-        skipped.push(lead.name || 'Leeg');
+    for (const lead of leads) {
+      // Deduplicate by Facebook Lead ID
+      if (lead.facebookLeadId && existingFbIds.has(lead.facebookLeadId)) {
+        skipped.push(`${lead.fullName} (al geïmporteerd)`);
         continue;
       }
 
-      // Check if candidate with this email already exists
-      if (lead.email) {
-        const { count } = await supabaseAdmin
-          .from('Candidate')
-          .select('id', { count: 'exact', head: true })
-          .eq('email', lead.email);
-
-        if ((count ?? 0) > 0) {
-          skipped.push(lead.name);
-          continue;
-        }
+      // Deduplicate by email
+      const emailKey = lead.email.toLowerCase().trim();
+      if (lead.email && existingEmails.has(emailKey)) {
+        skipped.push(`${lead.fullName} (e-mail bestaat al)`);
+        continue;
       }
 
-      const nameParts = lead.name.trim().split(' ');
-      const firstName = nameParts[0] ?? 'Onbekend';
-      const lastName = nameParts.slice(1).join(' ') || '';
+      if (!lead.fullName && !lead.email) {
+        skipped.push('Lege rij');
+        continue;
+      }
 
-      const consentDate = new Date();
+      if (dryRun) {
+        imported.push(lead.fullName || lead.email);
+        continue;
+      }
+
+      const nameParts  = lead.fullName.trim().split(' ');
+      const firstName  = nameParts[0] ?? 'Onbekend';
+      const lastName   = nameParts.slice(1).join(' ') || '';
+
+      const consentDate   = new Date();
       const consentExpiry = new Date(consentDate);
       consentExpiry.setFullYear(consentExpiry.getFullYear() + 1);
 
-      const { error } = await supabaseAdmin.from('Candidate').insert({
-        firstName,
-        lastName,
-        email: lead.email || `import-${Date.now()}@sheets.local`,
-        phone: lead.phone || null,
-        status: 'NEW_LEAD',
-        source: 'Google Sheets Import',
-        leadSource: 'Google Sheets Import',
-        leadCampaignId: lead.campaign || null,
-        consentGivenAt: consentDate.toISOString(),
-        consentExpiresAt: consentExpiry.toISOString(),
-      });
+      const { data: newCandidate, error: insertErr } = await supabaseAdmin
+        .from('Candidate')
+        .insert({
+          firstName,
+          lastName,
+          name:            lead.fullName.trim(),
+          email:           lead.email || `fb-${lead.facebookLeadId || Date.now()}@sheets.local`,
+          phone:           lead.phone || null,
+          status:          'NEW_LEAD',
+          source:          'Google Sheets (Facebook Leads)',
+          leadSource:      'FACEBOOK',
+          leadCampaignId:  lead.facebookLeadId || null,
+          consentGiven:    true,
+          consentDate:     consentDate.toISOString(),
+          consentExpiresAt: consentExpiry.toISOString(),
+        })
+        .select('id')
+        .single();
 
-      if (error) {
-        console.error('Import insert error:', error, lead);
-        skipped.push(lead.name);
-      } else {
-        inserted.push(lead.name);
+      if (insertErr || !newCandidate) {
+        console.error('[Sheets import] Insert error:', insertErr, lead.fullName);
+        errors.push(lead.fullName || lead.email);
+        continue;
+      }
+
+      // Track for session dedup
+      if (lead.facebookLeadId) existingFbIds.add(lead.facebookLeadId);
+      if (lead.email) existingEmails.add(emailKey);
+      imported.push(lead.fullName || lead.email);
+
+      // Build note from sheet status column + custom answer + meta
+      const noteParts: string[] = [];
+
+      if (lead.leadStatus?.trim()) {
+        noteParts.push(`**Status uit sheet:** ${lead.leadStatus.trim()}`);
+      }
+      if (lead.customAnswer?.trim() && lead.customQuestion?.trim()) {
+        noteParts.push(`**${lead.customQuestion}:** ${lead.customAnswer.trim()}`);
+      }
+      if (lead.campaignName?.trim()) {
+        noteParts.push(`**Campagne:** ${lead.campaignName.trim()}`);
+      }
+      if (lead.platform?.trim()) {
+        noteParts.push(`**Platform:** ${lead.platform.toUpperCase()}`);
+      }
+
+      if (noteParts.length > 0 && noteAuthorId) {
+        await supabaseAdmin.from('CandidateNote').insert({
+          candidateId: newCandidate.id,
+          authorId:    noteAuthorId,
+          content:     noteParts.join('\n'),
+        });
       }
     }
 
     return NextResponse.json({
-      ok: true,
-      imported: inserted.length,
-      skipped: skipped.length,
-      names: inserted,
+      ok:           true,
+      dryRun,
+      imported:     imported.length,
+      skipped:      skipped.length,
+      errors:       errors.length,
+      names:        imported,
+      skippedNames: skipped,
     });
   } catch (err) {
     console.error('Google Sheets import error:', err);
-    return NextResponse.json({ error: 'Import mislukt. Controleer de Google Sheets instellingen.' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Import mislukt. Controleer de Google Sheets instellingen.' },
+      { status: 500 }
+    );
   }
 }
