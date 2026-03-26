@@ -4,41 +4,10 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import type { CallLog, CallStatus, CandidateStatus } from '@/types';
 
-const CALL_STATUSES: { status: CallStatus; label: string; icon: string; color: string; activeColor: string }[] = [
-  {
-    status: 'GEEN_GEHOOR',
-    label: 'Geen gehoor',
-    icon: '📵',
-    color: 'border-[#363848] text-[#9ca3af] hover:border-[#68b0a6]/50 hover:text-white',
-    activeColor: 'border-[#4a5568] bg-[#2d2f3e] text-white',
-  },
-  {
-    status: 'VOICEMAIL',
-    label: 'Voicemail',
-    icon: '📬',
-    color: 'border-[#363848] text-[#9ca3af] hover:border-[#f7a247]/50 hover:text-white',
-    activeColor: 'border-[#f7a247]/50 bg-[#f7a247]/10 text-[#f7a247]',
-  },
-  {
-    status: 'TERUGBELLEN',
-    label: 'Terugbellen',
-    icon: '🔁',
-    color: 'border-[#363848] text-[#9ca3af] hover:border-blue-500/50 hover:text-white',
-    activeColor: 'border-blue-500/50 bg-blue-500/10 text-blue-400',
-  },
-  {
-    status: 'BEREIKT',
-    label: 'Bereikt',
-    icon: '✅',
-    color: 'border-[#363848] text-[#9ca3af] hover:border-[#68b0a6]/50 hover:text-white',
-    activeColor: 'border-[#68b0a6]/60 bg-[#68b0a6]/10 text-[#68b0a6]',
-  },
-];
-
 const STATUS_LABELS: Record<CallStatus, string> = {
   GEEN_GEHOOR: 'Geen gehoor',
   VOICEMAIL: 'Voicemail',
-  BEREIKT: 'Bereikt',
+  BEREIKT: 'Contact',
   TERUGBELLEN: 'Terugbellen',
 };
 
@@ -53,66 +22,56 @@ interface Props {
   candidateId: string;
   candidateStatus: CandidateStatus;
   candidatePhone: string | null;
-  candidateName: string;
   initialCallLogs: CallLog[];
-  screeningSection: React.ReactNode;
-  checklistSection: React.ReactNode;
 }
+
+type ActiveForm = 'VOICEMAIL' | 'TERUGBELLEN' | null;
 
 export function CandidateCallLogClient({
   candidateId,
   candidateStatus,
-  candidateName,
   initialCallLogs,
-  screeningSection,
-  checklistSection,
 }: Props) {
   const router = useRouter();
   const [callLogs, setCallLogs] = useState<CallLog[]>(initialCallLogs);
-  const [currentStatus, setCurrentStatus] = useState<CandidateStatus>(candidateStatus);
-  const [selectedStatus, setSelectedStatus] = useState<CallStatus | null>(null);
-  const [noteText, setNoteText] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<CallStatus | null>(null);
   const [saveError, setSaveError] = useState('');
 
-  // Appointment form state
-  const [showAppointmentForm, setShowAppointmentForm] = useState(false);
-  const [appointmentDate, setAppointmentDate] = useState('');
-  const [appointmentTime, setAppointmentTime] = useState('10:00');
-  const [appointmentLocation, setAppointmentLocation] = useState('Kantoor Zwaluw, Oss');
-  const [booking, setBooking] = useState(false);
-  const [appointmentDone, setAppointmentDone] = useState(false);
-  const [bookingError, setBookingError] = useState('');
+  // Expanded form state
+  const [activeForm, setActiveForm] = useState<ActiveForm>(null);
+  const [messageLeft, setMessageLeft] = useState(false);
+  const [callbackDate, setCallbackDate] = useState('');
+  const [callbackTime, setCallbackTime] = useState('');
+  const [noteText, setNoteText] = useState('');
 
-  // Rejection state
-  const [confirmReject, setConfirmReject] = useState(false);
-  const [rejecting, setRejecting] = useState(false);
-
-  // Sync when CandidateStageClient changes status externally and triggers router.refresh()
   useEffect(() => {
-    setCurrentStatus(prev => {
-      const order: CandidateStatus[] = ['NEW_LEAD', 'PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED'];
-      return order.indexOf(candidateStatus) > order.indexOf(prev) ? candidateStatus : prev;
-    });
-  }, [candidateStatus]);
+    setCallLogs(initialCallLogs);
+  }, [initialCallLogs]);
 
   const lastLog = callLogs[0] ?? null;
+  const isResolved = ['INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED'].includes(candidateStatus);
 
-  // Visibility logic — fully client-state driven, no router.refresh() needed
-  const showScreening = ['PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED'].includes(currentStatus);
-  const showOutcome = showScreening && !['INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED'].includes(currentStatus) && !appointmentDone;
-  const showChecklist = ['INTERVIEW', 'RESERVE_BANK', 'HIRED'].includes(currentStatus) || appointmentDone;
-  const isResolved = ['INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED'].includes(currentStatus);
+  function resetForm() {
+    setActiveForm(null);
+    setMessageLeft(false);
+    setCallbackDate('');
+    setCallbackTime('');
+    setNoteText('');
+    setSaveError('');
+  }
 
-  async function logCall() {
-    if (!selectedStatus) return;
-    setSaving(true);
+  async function logCall(status: CallStatus, opts?: { notes?: string | undefined; callbackAt?: string | undefined }) {
+    setSaving(status);
     setSaveError('');
     try {
       const res = await fetch(`/api/candidates/${candidateId}/call-log`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: selectedStatus, notes: noteText }),
+        body: JSON.stringify({
+          status,
+          notes: opts?.notes ?? null,
+          callbackAt: opts?.callbackAt ?? null,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -120,257 +79,136 @@ export function CandidateCallLogClient({
         return;
       }
       setCallLogs(prev => [data.data, ...prev]);
-      setNoteText('');
-      setSelectedStatus(null);
-      // When BEREIKT is logged: advance status to PRE_SCREENING locally — no router.refresh() needed
-      if (selectedStatus === 'BEREIKT' && currentStatus === 'NEW_LEAD') {
-        setCurrentStatus('PRE_SCREENING');
-      }
+      resetForm();
+      router.refresh();
     } catch {
       setSaveError('Verbinding mislukt.');
     } finally {
-      setSaving(false);
+      setSaving(null);
     }
   }
 
-  async function rejectCandidate() {
-    setRejecting(true);
-    try {
-      await fetch(`/api/candidates/${candidateId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'REJECTED' }),
-      });
-      setCurrentStatus('REJECTED');
-      setConfirmReject(false);
-      router.refresh(); // Refresh to update header status badge
-    } catch {
-      // silent
-    } finally {
-      setRejecting(false);
-    }
+  function handleVoicemailSave() {
+    const parts: string[] = [];
+    if (messageLeft) parts.push('Bericht achtergelaten');
+    if (noteText.trim()) parts.push(noteText.trim());
+    logCall('VOICEMAIL', { notes: parts.join('\n') || undefined });
   }
 
-  async function bookAppointment(e: React.FormEvent) {
-    e.preventDefault();
-    if (!appointmentDate || !appointmentTime) return;
-    setBooking(true);
-    setBookingError('');
-    try {
-      const res = await fetch(`/api/candidates/${candidateId}/appointment-book`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: appointmentDate,
-          time: appointmentTime,
-          location: appointmentLocation,
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        setBookingError(data.error ?? 'Afspraak inplannen mislukt.');
-        return;
-      }
-      setAppointmentDone(true);
-      setCurrentStatus('INTERVIEW');
-      setShowAppointmentForm(false);
-      router.refresh(); // Refresh header status badge only
-    } catch {
-      setBookingError('Verbinding mislukt.');
-    } finally {
-      setBooking(false);
+  function handleTerugbellenSave() {
+    let callbackAt: string | undefined;
+    if (callbackDate) {
+      const dt = callbackTime ? `${callbackDate}T${callbackTime}:00` : `${callbackDate}T00:00:00`;
+      callbackAt = new Date(dt).toISOString();
     }
+    logCall('TERUGBELLEN', { notes: noteText.trim() || undefined, callbackAt });
   }
 
-  const today = new Date().toISOString().split('T')[0];
+  // Today as min date for callback
+  const todayStr = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="space-y-4">
-      {/* ── Bel opvolging card ─────────────────────────────────────── */}
-      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5 space-y-5">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h2 className="text-sm font-semibold text-white">Bel opvolging</h2>
-            {lastLog && (
-              <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium ${STATUS_COLORS[lastLog.status as CallStatus]}`}>
-                Laatste: {STATUS_LABELS[lastLog.status as CallStatus]}
-              </span>
-            )}
-          </div>
-          <span className="text-xs text-[#9ca3af]">{callLogs.length} poging{callLogs.length !== 1 ? 'en' : ''}</span>
+    <div className="rounded-xl border border-[#363848] bg-[#252732] p-5 space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h2 className="text-sm font-semibold text-white">Bel opvolging</h2>
+          {lastLog && (
+            <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium ${STATUS_COLORS[lastLog.status as CallStatus]}`}>
+              Laatste: {STATUS_LABELS[lastLog.status as CallStatus]}
+            </span>
+          )}
         </div>
-
-        {/* Appointment success banner */}
-        {appointmentDone && (
-          <div className="rounded-lg border border-[#68b0a6]/30 bg-[#68b0a6]/10 px-4 py-3 flex items-center gap-3">
-            <span className="text-lg">📅</span>
-            <div>
-              <p className="text-sm font-medium text-[#68b0a6]">Afspraak bevestigd</p>
-              <p className="text-xs text-[#9ca3af] mt-0.5">SMS en e-mail zijn verzonden naar {candidateName}. Status bijgewerkt naar Sollicitatiegesprek.</p>
-            </div>
-          </div>
-        )}
-
-        {/* Rejected banner */}
-        {currentStatus === 'REJECTED' && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
-            <p className="text-sm text-red-400 font-medium">Kandidaat afgewezen</p>
-          </div>
-        )}
-
-        {/* Log bel poging form — hide when resolved */}
-        {!isResolved && (
-          <div className="space-y-3">
-            <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">Log bel poging</p>
-
-            {/* Status buttons */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {CALL_STATUSES.map(({ status, label, icon, color, activeColor }) => (
-                <button
-                  key={status}
-                  onClick={() => setSelectedStatus(prev => prev === status ? null : status)}
-                  className={`rounded-lg border px-3 py-2.5 text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
-                    selectedStatus === status ? activeColor : color
-                  }`}
-                >
-                  <span>{icon}</span>
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* Optional note + save */}
-            {selectedStatus && (
-              <div className="space-y-2">
-                <textarea
-                  value={noteText}
-                  onChange={e => setNoteText(e.target.value)}
-                  placeholder="Optionele notitie (bijv. 'Belt terug morgen om 9:00')"
-                  rows={2}
-                  className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white placeholder-[#9ca3af] focus:border-[#68b0a6] focus:outline-none resize-none"
-                />
-                {saveError && (
-                  <p className="text-xs text-red-400">{saveError}</p>
-                )}
-                <button
-                  onClick={logCall}
-                  disabled={saving}
-                  className="rounded-lg bg-[#68b0a6] px-4 py-2 text-sm font-medium text-white hover:bg-[#7ec4ba] disabled:opacity-50 transition-colors"
-                >
-                  {saving ? 'Opslaan...' : `Log: ${STATUS_LABELS[selectedStatus]}`}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Bel historie */}
-        {callLogs.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">Bel historie</p>
-            <div className="space-y-2">
-              {callLogs.map((log, i) => (
-                <div
-                  key={log.id}
-                  className={`flex items-start gap-3 rounded-lg p-3 ${
-                    i === 0 ? 'bg-[#1e2028] border border-[#363848]' : 'bg-[#1a1c24]'
-                  }`}
-                >
-                  <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm ${STATUS_COLORS[log.status as CallStatus]}`}>
-                    {log.status === 'GEEN_GEHOOR' && '📵'}
-                    {log.status === 'VOICEMAIL' && '📬'}
-                    {log.status === 'BEREIKT' && '✅'}
-                    {log.status === 'TERUGBELLEN' && '🔁'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className={`text-xs font-semibold ${STATUS_COLORS[log.status as CallStatus].split(' ')[1]}`}>
-                        {STATUS_LABELS[log.status as CallStatus]}
-                      </span>
-                      <span className="text-[10px] text-[#9ca3af] shrink-0">
-                        {new Date(log.createdAt).toLocaleString('nl-NL', {
-                          day: 'numeric',
-                          month: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                    </div>
-                    {log.user && (
-                      <p className="text-[10px] text-[#9ca3af] mt-0.5">{log.user.name}</p>
-                    )}
-                    {log.notes && (
-                      <p className="text-xs text-[#9ca3af] mt-1 italic">&ldquo;{log.notes}&rdquo;</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {callLogs.length === 0 && !isResolved && (
-          <p className="text-xs text-[#9ca3af] text-center py-3 border border-dashed border-[#363848] rounded-lg">
-            Nog geen bel pogingen geregistreerd.
-          </p>
-        )}
+        <span className="text-xs text-[#9ca3af]">{callLogs.length} poging{callLogs.length !== 1 ? 'en' : ''}</span>
       </div>
 
-      {/* ── Pre-screening sectie ───────────────────────────────────── */}
-      {showScreening && screeningSection && (
-        <div className="rounded-xl border border-[#68b0a6]/30 bg-[#252732] p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-white">📋 Pre-screening — vragen doorlopen tijdens gesprek</h2>
-            <span className="rounded-full bg-[#68b0a6]/10 px-2 py-0.5 text-[10px] font-medium text-[#68b0a6]">
-              Script
-            </span>
+      {/* Bel knoppen + inline formulieren */}
+      {!isResolved && (
+        <div className="space-y-3">
+          <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">Log bel poging</p>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {/* Geen gehoor — direct log */}
+            <button
+              onClick={() => logCall('GEEN_GEHOOR')}
+              disabled={saving !== null}
+              className="rounded-lg border border-[#363848] px-3 py-2.5 text-xs font-medium text-[#9ca3af] hover:border-[#68b0a6]/50 hover:text-white transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+            >
+              <span>📵</span>
+              {saving === 'GEEN_GEHOOR' ? 'Opslaan…' : 'Geen gehoor'}
+            </button>
+
+            {/* Voicemail — opent inline formulier */}
+            <button
+              onClick={() => setActiveForm(prev => prev === 'VOICEMAIL' ? null : 'VOICEMAIL')}
+              disabled={saving !== null}
+              className={`rounded-lg border px-3 py-2.5 text-xs font-medium transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 ${
+                activeForm === 'VOICEMAIL'
+                  ? 'border-[#f7a247]/50 bg-[#f7a247]/10 text-[#f7a247]'
+                  : 'border-[#363848] text-[#9ca3af] hover:border-[#f7a247]/50 hover:text-white'
+              }`}
+            >
+              <span>📬</span>
+              Voicemail
+            </button>
+
+            {/* Terugbellen — opent inline formulier */}
+            <button
+              onClick={() => setActiveForm(prev => prev === 'TERUGBELLEN' ? null : 'TERUGBELLEN')}
+              disabled={saving !== null}
+              className={`rounded-lg border px-3 py-2.5 text-xs font-medium transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 ${
+                activeForm === 'TERUGBELLEN'
+                  ? 'border-blue-500/50 bg-blue-500/10 text-blue-400'
+                  : 'border-[#363848] text-[#9ca3af] hover:border-blue-500/50 hover:text-white'
+              }`}
+            >
+              <span>🔁</span>
+              Terugbellen
+            </button>
+
+            {/* Contact (BEREIKT) — direct log + refresh */}
+            <button
+              onClick={() => logCall('BEREIKT')}
+              disabled={saving !== null}
+              className="rounded-lg border border-[#68b0a6]/60 bg-[#68b0a6]/10 px-3 py-2.5 text-xs font-medium text-[#68b0a6] hover:bg-[#68b0a6]/20 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+            >
+              <span>✅</span>
+              {saving === 'BEREIKT' ? 'Opslaan…' : 'Contact'}
+            </button>
           </div>
-          {screeningSection}
-        </div>
-      )}
 
-      {/* ── Uitkomst sectie ────────────────────────────────────────── */}
-      {showOutcome && (
-        <div className="rounded-xl border border-[#f7a247]/20 bg-[#252732] p-5 space-y-3">
-          <div>
-            <p className="text-sm font-semibold text-white">Uitkomst pre-screening</p>
-            <p className="text-xs text-[#9ca3af] mt-0.5">Loop de pre-screening vragen hierboven door en geef het resultaat aan.</p>
-          </div>
-
-          {!showAppointmentForm && !confirmReject && (
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => setConfirmReject(true)}
-                className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/20 transition-colors"
-              >
-                👎 Geen interesse
-              </button>
-              <button
-                onClick={() => setShowAppointmentForm(true)}
-                className="rounded-lg bg-[#68b0a6] px-4 py-2 text-sm font-medium text-white hover:bg-[#7ec4ba] transition-colors"
-              >
-                👍 Interessant — Sollicitatiegesprek plannen
-              </button>
-            </div>
-          )}
-
-          {/* Rejection confirm */}
-          {confirmReject && (
-            <div className="rounded-lg border border-red-500/30 bg-[#1e2028] p-4 space-y-3">
-              <p className="text-sm text-white font-medium">Kandidaat afwijzen?</p>
-              <p className="text-xs text-[#9ca3af]">Status wordt bijgewerkt naar Afgewezen. Dit kan niet ongedaan worden gemaakt.</p>
-              <div className="flex gap-3">
+          {/* Voicemail formulier */}
+          {activeForm === 'VOICEMAIL' && (
+            <div className="rounded-lg border border-[#f7a247]/30 bg-[#1e2028] p-4 space-y-3">
+              <p className="text-xs font-medium text-[#f7a247]">Voicemail details</p>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={messageLeft}
+                  onChange={e => setMessageLeft(e.target.checked)}
+                  className="rounded border-[#363848] bg-[#252732] accent-[#f7a247]"
+                />
+                <span className="text-sm text-[#e8e9ed]">Bericht achtergelaten</span>
+              </label>
+              <textarea
+                value={noteText}
+                onChange={e => setNoteText(e.target.value)}
+                placeholder="Optionele opmerking…"
+                rows={2}
+                className="w-full rounded-lg border border-[#363848] bg-[#252732] px-3 py-2 text-sm text-white placeholder-[#9ca3af] focus:border-[#f7a247] focus:outline-none resize-none"
+              />
+              {saveError && <p className="text-xs text-red-400">{saveError}</p>}
+              <div className="flex gap-2">
                 <button
-                  onClick={rejectCandidate}
-                  disabled={rejecting}
-                  className="rounded-lg bg-red-500/80 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50 transition-colors"
+                  onClick={handleVoicemailSave}
+                  disabled={saving !== null}
+                  className="rounded-lg bg-[#f7a247] px-4 py-2 text-xs font-semibold text-white hover:bg-[#f7a247]/80 disabled:opacity-50 transition-colors"
                 >
-                  {rejecting ? 'Afwijzen...' : 'Ja, afwijzen'}
+                  {saving === 'VOICEMAIL' ? 'Opslaan…' : 'Opslaan'}
                 </button>
                 <button
-                  onClick={() => setConfirmReject(false)}
-                  className="rounded-lg border border-[#363848] px-4 py-2 text-sm text-[#9ca3af] hover:text-white transition-colors"
+                  onClick={resetForm}
+                  className="rounded-lg border border-[#363848] px-4 py-2 text-xs font-medium text-[#9ca3af] hover:text-white transition-colors"
                 >
                   Annuleren
                 </button>
@@ -378,85 +216,120 @@ export function CandidateCallLogClient({
             </div>
           )}
 
-          {/* Appointment booking form */}
-          {showAppointmentForm && (
-            <form onSubmit={bookAppointment} className="rounded-lg border border-[#68b0a6]/20 bg-[#1e2028] p-4 space-y-4">
-              <p className="text-sm font-semibold text-white">📅 Sollicitatiegesprek inplannen</p>
-              <p className="text-xs text-[#9ca3af]">
-                Na bevestigen ontvangt <strong className="text-white">{candidateName}</strong> een SMS en e-mail bevestiging.
-                Status wordt bijgewerkt naar Sollicitatiegesprek.
-              </p>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {/* Terugbellen formulier */}
+          {activeForm === 'TERUGBELLEN' && (
+            <div className="rounded-lg border border-blue-500/30 bg-[#1e2028] p-4 space-y-3">
+              <p className="text-xs font-medium text-blue-400">Terugbel afspraak</p>
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-[#9ca3af]">Datum *</label>
+                  <label className="block text-xs text-[#9ca3af] mb-1">Datum</label>
                   <input
                     type="date"
-                    required
-                    min={today}
-                    value={appointmentDate}
-                    onChange={e => setAppointmentDate(e.target.value)}
-                    className="w-full rounded-lg border border-[#363848] bg-[#252732] px-3 py-2 text-sm text-white focus:border-[#68b0a6] focus:outline-none"
+                    value={callbackDate}
+                    min={todayStr}
+                    onChange={e => setCallbackDate(e.target.value)}
+                    className="w-full rounded-lg border border-[#363848] bg-[#252732] px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-[#9ca3af]">Tijd *</label>
+                  <label className="block text-xs text-[#9ca3af] mb-1">Tijd</label>
                   <input
                     type="time"
-                    required
-                    value={appointmentTime}
-                    onChange={e => setAppointmentTime(e.target.value)}
-                    className="w-full rounded-lg border border-[#363848] bg-[#252732] px-3 py-2 text-sm text-white focus:border-[#68b0a6] focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-[#9ca3af]">Locatie</label>
-                  <input
-                    type="text"
-                    value={appointmentLocation}
-                    onChange={e => setAppointmentLocation(e.target.value)}
-                    placeholder="Kantoor Zwaluw, Oss"
-                    className="w-full rounded-lg border border-[#363848] bg-[#252732] px-3 py-2 text-sm text-white placeholder-[#9ca3af] focus:border-[#68b0a6] focus:outline-none"
+                    value={callbackTime}
+                    onChange={e => setCallbackTime(e.target.value)}
+                    className="w-full rounded-lg border border-[#363848] bg-[#252732] px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
                   />
                 </div>
               </div>
-
-              {bookingError && (
-                <p className="text-xs text-red-400">{bookingError}</p>
-              )}
-
-              <div className="flex gap-3">
+              <textarea
+                value={noteText}
+                onChange={e => setNoteText(e.target.value)}
+                placeholder="Optionele opmerking…"
+                rows={2}
+                className="w-full rounded-lg border border-[#363848] bg-[#252732] px-3 py-2 text-sm text-white placeholder-[#9ca3af] focus:border-blue-500 focus:outline-none resize-none"
+              />
+              {saveError && <p className="text-xs text-red-400">{saveError}</p>}
+              <div className="flex gap-2">
                 <button
-                  type="submit"
-                  disabled={booking || !appointmentDate}
-                  className="rounded-lg bg-[#68b0a6] px-5 py-2 text-sm font-semibold text-white hover:bg-[#7ec4ba] disabled:opacity-50 transition-colors"
+                  onClick={handleTerugbellenSave}
+                  disabled={saving !== null}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
                 >
-                  {booking ? 'Bevestigen...' : '✓ Bevestig afspraak & verstuur SMS'}
+                  {saving === 'TERUGBELLEN' ? 'Opslaan…' : 'Opslaan'}
                 </button>
                 <button
-                  type="button"
-                  onClick={() => setShowAppointmentForm(false)}
-                  className="rounded-lg border border-[#363848] px-4 py-2 text-sm text-[#9ca3af] hover:text-white transition-colors"
+                  onClick={resetForm}
+                  className="rounded-lg border border-[#363848] px-4 py-2 text-xs font-medium text-[#9ca3af] hover:text-white transition-colors"
                 >
                   Annuleren
                 </button>
               </div>
-            </form>
+            </div>
           )}
         </div>
       )}
 
-      {/* ── Interview checklist sectie ────────────────────────────── */}
-      {showChecklist && checklistSection && (
-        <div className="rounded-xl border border-purple-500/30 bg-[#252732] p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-white">✅ Sollicitatiegesprek checklist</h2>
-            <span className="rounded-full bg-purple-500/10 px-2 py-0.5 text-[10px] font-medium text-purple-400">
-              Checklist
-            </span>
+      {/* Bel historie */}
+      {callLogs.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">Bel historie</p>
+          <div className="space-y-2">
+            {callLogs.map((log, i) => (
+              <div
+                key={log.id}
+                className={`flex items-start gap-3 rounded-lg p-3 ${
+                  i === 0 ? 'bg-[#1e2028] border border-[#363848]' : 'bg-[#1a1c24]'
+                }`}
+              >
+                <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm ${STATUS_COLORS[log.status as CallStatus]}`}>
+                  {log.status === 'GEEN_GEHOOR' && '📵'}
+                  {log.status === 'VOICEMAIL' && '📬'}
+                  {log.status === 'BEREIKT' && '✅'}
+                  {log.status === 'TERUGBELLEN' && '🔁'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-xs font-semibold ${STATUS_COLORS[log.status as CallStatus].split(' ')[1]}`}>
+                      {STATUS_LABELS[log.status as CallStatus]}
+                    </span>
+                    <span className="text-[10px] text-[#9ca3af] shrink-0">
+                      {new Date(log.createdAt).toLocaleString('nl-NL', {
+                        day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                  {log.user && <p className="text-[10px] text-[#9ca3af] mt-0.5">{log.user.name}</p>}
+                  {/* Terugbel datum prominent tonen */}
+                  {log.status === 'TERUGBELLEN' && log.callbackAt && (
+                    <p className="text-xs text-blue-400 mt-1 font-medium">
+                      Terugbellen op:{' '}
+                      {new Date(log.callbackAt).toLocaleString('nl-NL', {
+                        weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                      })}
+                    </p>
+                  )}
+                  {/* Voicemail: bericht achtergelaten badge */}
+                  {log.status === 'VOICEMAIL' && log.notes?.includes('Bericht achtergelaten') && (
+                    <span className="inline-block mt-1 rounded-full bg-[#f7a247]/10 px-2 py-0.5 text-[10px] text-[#f7a247]">
+                      Bericht achtergelaten
+                    </span>
+                  )}
+                  {log.notes && !/^Bericht achtergelaten$/.test(log.notes) && (
+                    <p className="text-xs text-[#9ca3af] mt-1 italic">
+                      &ldquo;{log.notes.replace('Bericht achtergelaten\n', '')}&rdquo;
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
-          {checklistSection}
         </div>
+      )}
+
+      {callLogs.length === 0 && !isResolved && (
+        <p className="text-xs text-[#9ca3af] text-center py-3 border border-dashed border-[#363848] rounded-lg">
+          Nog geen bel pogingen geregistreerd.
+        </p>
       )}
     </div>
   );

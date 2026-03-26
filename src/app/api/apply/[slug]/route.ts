@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { sendNewCandidateEmail } from '@/lib/email';
+import { autoAssignCandidate } from '@/lib/recruitment';
 
 export async function POST(
   request: NextRequest,
@@ -109,6 +110,9 @@ export async function POST(
     }
     candidateId = newCandidate.id;
   }
+
+  // Auto-assign based on vacancy role
+  await autoAssignCandidate(candidateId, name, job.id);
 
   // Add motivation as a note if provided (use first admin as author)
   if (body.motivation) {

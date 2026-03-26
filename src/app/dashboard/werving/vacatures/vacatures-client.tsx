@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import type { JobOpening, VacatureRol } from '@/types';
 import { VACATURE_ROL_LABELS } from '@/types';
+import { ImagePickerModal } from './image-picker';
 
 const EMPTY: Partial<JobOpening> = {
   title: '',
@@ -13,6 +14,9 @@ const EMPTY: Partial<JobOpening> = {
   hoursPerWeek: '',
   salaryRange: '',
   imageUrl: '',
+  benefits: '',
+  perks: '',
+  impact: '',
   roleType: undefined,
   isActive: true,
 };
@@ -35,8 +39,7 @@ export function VacaturesClient({ initialJobOpenings }: Props) {
   const [isNew, setIsNew] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showImagePicker, setShowImagePicker] = useState(false);
 
   const appUrl = typeof window !== 'undefined' ? window.location.origin : 'https://zwaluw-portal.vercel.app';
 
@@ -103,23 +106,6 @@ export function VacaturesClient({ initialJobOpenings }: Props) {
     }
   }
 
-  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    setError('');
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/admin/upload', { method: 'POST', body: formData });
-      const json = await res.json();
-      if (!res.ok) { setError(json.error ?? 'Upload mislukt.'); return; }
-      setEditing((prev) => ({ ...prev, imageUrl: json.url }));
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  }
 
   return (
     <div className="space-y-6 fade-in">
@@ -195,10 +181,10 @@ export function VacaturesClient({ initialJobOpenings }: Props) {
               {/* Public URL */}
               <div className="mt-3 flex items-center gap-2 rounded-lg bg-[#1e2028] px-3 py-2">
                 <span className="text-xs text-[#9ca3af] truncate flex-1">
-                  {appUrl}/apply/{job.slug}
+                  {appUrl}/vacature/{job.slug}
                 </span>
                 <button
-                  onClick={() => navigator.clipboard.writeText(`${appUrl}/apply/${job.slug}`)}
+                  onClick={() => navigator.clipboard.writeText(`${appUrl}/vacature/${job.slug}`)}
                   className="text-xs text-[#68b0a6] hover:text-white shrink-0 transition-colors"
                 >
                   Kopieer
@@ -298,15 +284,9 @@ export function VacaturesClient({ initialJobOpenings }: Props) {
 
               <div>
                 <label className="block text-xs font-medium text-[#9ca3af] mb-1.5">Afbeelding</label>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  className="hidden"
-                  onChange={handleImageUpload}
-                />
                 {editing.imageUrl ? (
                   <div className="flex items-center gap-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={editing.imageUrl}
                       alt="Preview"
@@ -315,11 +295,10 @@ export function VacaturesClient({ initialJobOpenings }: Props) {
                     <div className="flex flex-col gap-1.5">
                       <button
                         type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={uploading}
-                        className="rounded-lg border border-[#363848] px-3 py-1.5 text-xs text-white hover:bg-[#363848] transition-colors disabled:opacity-50"
+                        onClick={() => setShowImagePicker(true)}
+                        className="rounded-lg border border-[#363848] px-3 py-1.5 text-xs text-white hover:bg-[#363848] transition-colors"
                       >
-                        {uploading ? 'Uploaden...' : 'Andere afbeelding'}
+                        Andere afbeelding
                       </button>
                       <button
                         type="button"
@@ -333,14 +312,13 @@ export function VacaturesClient({ initialJobOpenings }: Props) {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
-                    className="flex items-center gap-2 rounded-lg border border-dashed border-[#363848] bg-[#1e2028] px-4 py-3 text-sm text-[#9ca3af] hover:border-[#68b0a6] hover:text-white transition-colors disabled:opacity-50"
+                    onClick={() => setShowImagePicker(true)}
+                    className="flex items-center gap-2 rounded-lg border border-dashed border-[#363848] bg-[#1e2028] px-4 py-3 text-sm text-[#9ca3af] hover:border-[#68b0a6] hover:text-white transition-colors"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
-                    {uploading ? 'Uploaden...' : 'Afbeelding uploaden (JPG, PNG, WebP — max 5 MB)'}
+                    Afbeelding uploaden of kiezen uit bibliotheek
                   </button>
                 )}
               </div>
@@ -364,6 +342,42 @@ export function VacaturesClient({ initialJobOpenings }: Props) {
                   placeholder="Eén vereiste per regel..."
                   className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white focus:border-[#68b0a6] focus:outline-none resize-y"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#9ca3af] mb-1.5">Voordelen</label>
+                <textarea
+                  rows={3}
+                  value={editing.benefits ?? ''}
+                  onChange={(e) => setEditing((prev) => ({ ...prev, benefits: e.target.value }))}
+                  placeholder="Eén voordeel per regel, bijv.&#10;Marktconform salaris&#10;25 vakantiedagen"
+                  className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white focus:border-[#68b0a6] focus:outline-none resize-y"
+                />
+                <p className="mt-1 text-[10px] text-[#9ca3af]">Één voordeel per regel — verschijnt in &ldquo;Wat we bieden&rdquo; blok.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#9ca3af] mb-1.5">Perks</label>
+                <input
+                  type="text"
+                  value={editing.perks ?? ''}
+                  onChange={(e) => setEditing((prev) => ({ ...prev, perks: e.target.value }))}
+                  placeholder="bijv. Lease Auto, Pensioen, Opleidingen, Teamuitjes"
+                  className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white focus:border-[#68b0a6] focus:outline-none"
+                />
+                <p className="mt-1 text-[10px] text-[#9ca3af]">Kommagescheiden — verschijnt als tags in groen &ldquo;Extra Perks&rdquo; blok.</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#9ca3af] mb-1.5">Dagelijkse impact</label>
+                <textarea
+                  rows={4}
+                  value={editing.impact ?? ''}
+                  onChange={(e) => setEditing((prev) => ({ ...prev, impact: e.target.value }))}
+                  placeholder="Beschrijf de dagelijkse impact van deze functie..."
+                  className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white focus:border-[#68b0a6] focus:outline-none resize-y"
+                />
+                <p className="mt-1 text-[10px] text-[#9ca3af]">Vrije tekst — verschijnt in &ldquo;Jouw dagelijkse impact&rdquo; sectie.</p>
               </div>
 
               <label className="flex items-center gap-3 cursor-pointer">
@@ -399,6 +413,18 @@ export function VacaturesClient({ initialJobOpenings }: Props) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Image picker modal */}
+      {showImagePicker && editing && (
+        <ImagePickerModal
+          currentUrl={editing.imageUrl ?? ''}
+          onSelect={(url) => {
+            setEditing((prev) => ({ ...prev, imageUrl: url }));
+            setShowImagePicker(false);
+          }}
+          onClose={() => setShowImagePicker(false)}
+        />
       )}
     </div>
   );

@@ -81,6 +81,7 @@ export interface CallLog {
   userId: string;
   status: CallStatus;
   notes?: string | null;
+  callbackAt?: string | null;
   createdAt: string;
   user?: { id: string; name: string } | null;
 }
@@ -196,6 +197,8 @@ export interface Candidate {
   postalCode?: string;
   rejectionReason?: string;
   rejectionEmailSent?: boolean;
+  interviewOutcome?: string | null;
+  interviewOutcomeAt?: string | null;
   createdAt: string;
   updatedAt: string;
   candidateNotes?: CandidateNote[];
@@ -213,6 +216,9 @@ export interface JobOpening {
   hoursPerWeek?: string;
   salaryRange?: string;
   imageUrl?: string;
+  benefits?: string | null;
+  perks?: string | null;
+  impact?: string | null;
   roleType?: VacatureRol;
   isActive: boolean;
   createdById: string;
@@ -375,10 +381,10 @@ export interface AuditLog {
 // ─── Dashboard stats ────────────────────────────────────────────────────────────
 
 export interface DashboardStats {
-  activeEmployees: number;
-  expiringContracts: number;
-  pendingLeave: number;
   openCandidates: number;
+  newLeadsThisWeek: number;
+  interviewsThisWeek: number;
+  todayCallbackCount: number;
 }
 
 // ─── Combined employee view ────────────────────────────────────────────────────

@@ -127,8 +127,8 @@ export default async function ApplyDetailPage({ params }: Props) {
           </div>
 
           {/* Image */}
-          <div className="order-1 md:order-2 relative">
-            <div className="relative rounded-2xl overflow-hidden aspect-[16/10] md:aspect-[4/3] shadow-2xl bg-[#e4e2e1]">
+          <div className="order-1 md:order-2">
+            <div className="relative rounded-2xl overflow-hidden aspect-[16/10] shadow-xl bg-[#e4e2e1]">
               {job.imageUrl ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
@@ -143,14 +143,6 @@ export default async function ApplyDetailPage({ params }: Props) {
                   </svg>
                 </div>
               )}
-              <div className="absolute inset-0 bg-gradient-to-t from-[#196961]/40 to-transparent" />
-            </div>
-            {/* Quote card */}
-            <div className="absolute -bottom-4 -left-4 p-4 bg-white shadow-xl rounded-xl max-w-[220px] border-l-4 border-[#8b5000]">
-              <p className="text-xs font-bold text-[#196961] mb-1 italic">&ldquo;Kwaliteit staat centraal&rdquo;</p>
-              <p className="text-[10px] text-[#3f4947] leading-tight">
-                Word onderdeel van ons gespecialiseerde team in sanitair comfort.
-              </p>
             </div>
           </div>
         </div>

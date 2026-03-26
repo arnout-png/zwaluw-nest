@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import { sendInterviewInviteEmail } from '@/lib/email';
+import { notifyStageChange } from '@/lib/recruitment';
 
 export async function GET(
   _request: NextRequest,
@@ -88,6 +89,8 @@ export async function PATCH(
   if ('leadSource' in body) updates.leadSource = body.leadSource ?? null;
   if ('leadCampaignId' in body) updates.leadCampaignId = body.leadCampaignId ?? null;
   if ('assignedToId' in body) updates.assignedToId = body.assignedToId ?? null;
+  if ('interviewOutcome' in body) updates.interviewOutcome = body.interviewOutcome ?? null;
+  if ('interviewOutcomeAt' in body) updates.interviewOutcomeAt = body.interviewOutcomeAt ?? null;
 
   // Handle name: accept either combined or split
   if ('firstName' in body || 'lastName' in body) {
@@ -102,9 +105,9 @@ export async function PATCH(
     return NextResponse.json({ error: 'Geen geldige velden om bij te werken.' }, { status: 400 });
   }
 
-  // Fetch current candidate before update (for email trigger)
+  // Fetch current candidate before update (for email trigger + notifications)
   let currentCandidate: { email: string; name: string; assignedToId: string | null } | null = null;
-  if (body.status === 'INTERVIEW') {
+  if (body.status) {
     const { data: existing } = await supabaseAdmin
       .from('Candidate')
       .select('email, name, assignedToId')
@@ -124,6 +127,12 @@ export async function PATCH(
 
   if (error) {
     return NextResponse.json({ error: 'Kan kandidaat niet bijwerken.' }, { status: 500 });
+  }
+
+  // Notify on stage change
+  if (body.status && currentCandidate) {
+    const assignedId = (body.assignedToId !== undefined ? body.assignedToId : currentCandidate.assignedToId) ?? null;
+    await notifyStageChange(id, currentCandidate.name, body.status, assignedId).catch(() => {});
   }
 
   // Send interview invite email when status moves to INTERVIEW

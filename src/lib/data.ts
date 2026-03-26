@@ -156,7 +156,8 @@ export async function getCandidate(id: string): Promise<Candidate | null> {
       `id, status, name, email, phone, age, location, livingSituation,
        partnerEmployment, currentJob, reasonForLeaving, salaryExpectation,
        consentGiven, consentDate, consentExpiresAt, leadSource, leadCampaignId,
-       assignedToId, jobOpeningId, prescreeningToken, prescreeningExpiresAt, createdAt, updatedAt`
+       assignedToId, jobOpeningId, prescreeningToken, prescreeningExpiresAt,
+       interviewOutcome, interviewOutcomeAt, createdAt, updatedAt`
     )
     .eq('id', id)
     .single();
@@ -422,81 +423,138 @@ export async function getContractsExpiringSoon(): Promise<ContractWithEmployee[]
 // ─── Dashboard stats ──────────────────────────────────────────────────────────
 
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const [employees, expiringContracts, pendingLeave, candidates] = await Promise.all([
-    supabaseAdmin
-      .from('User')
-      .select('id', { count: 'exact', head: true })
-      .eq('isActive', true),
-    supabaseAdmin
-      .from('Contract')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'ACTIVE')
-      .not('endDate', 'is', null)
-      .lte(
-        'endDate',
-        new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-      )
-      .gte('endDate', new Date().toISOString().split('T')[0]),
-    supabaseAdmin
-      .from('LeaveRequest')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'PENDING'),
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+  const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString();
+
+  const [openCandidates, newLeads, interviews, todayCallbacks] = await Promise.all([
     supabaseAdmin
       .from('Candidate')
       .select('id', { count: 'exact', head: true })
       .not('status', 'in', '("HIRED","REJECTED")'),
+    supabaseAdmin
+      .from('Candidate')
+      .select('id', { count: 'exact', head: true })
+      .gte('createdAt', weekAgo),
+    supabaseAdmin
+      .from('Candidate')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'INTERVIEW')
+      .gte('stageUpdatedAt', weekAgo),
+    supabaseAdmin
+      .from('CallLog')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'TERUGBELLEN')
+      .gte('callbackAt', todayStart)
+      .lt('callbackAt', todayEnd),
   ]);
 
   return {
-    activeEmployees: employees.count ?? 0,
-    expiringContracts: expiringContracts.count ?? 0,
-    pendingLeave: pendingLeave.count ?? 0,
-    openCandidates: candidates.count ?? 0,
+    openCandidates: openCandidates.count ?? 0,
+    newLeadsThisWeek: newLeads.count ?? 0,
+    interviewsThisWeek: interviews.count ?? 0,
+    todayCallbackCount: todayCallbacks.count ?? 0,
   };
+}
+
+export async function getRecentCandidates(limit = 5): Promise<Candidate[]> {
+  const { data, error } = await supabaseAdmin
+    .from('Candidate')
+    .select('id, status, name, email, phone, leadSource, stageUpdatedAt, createdAt, jobOpeningId')
+    .not('status', 'in', '("HIRED","REJECTED")')
+    .order('createdAt', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error('getRecentCandidates error:', error.message);
+    return [];
+  }
+  return ((data ?? []) as unknown as Candidate[]).map(c => ({
+    ...c,
+    firstName: c.name?.split(' ')[0] ?? '',
+    lastName: c.name?.split(' ').slice(1).join(' ') ?? '',
+  }));
+}
+
+export async function getTodayCallbacks(): Promise<{ candidateId: string; candidateName: string; phone?: string | null; callbackAt: string }[]> {
+  const today = new Date();
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+  const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString();
+
+  const { data, error } = await supabaseAdmin
+    .from('CallLog')
+    .select('id, candidateId, callbackAt, status')
+    .eq('status', 'TERUGBELLEN')
+    .gte('callbackAt', todayStart)
+    .lt('callbackAt', todayEnd)
+    .order('callbackAt', { ascending: true });
+
+  if (error || !data?.length) return [];
+
+  const candidateIds = [...new Set((data as { candidateId: string }[]).map(c => c.candidateId))];
+  const { data: candidates } = await supabaseAdmin
+    .from('Candidate')
+    .select('id, name, phone')
+    .in('id', candidateIds);
+
+  const candidateMap = Object.fromEntries(
+    ((candidates ?? []) as { id: string; name: string; phone?: string | null }[]).map(c => [c.id, c])
+  );
+
+  return (data as { candidateId: string; callbackAt: string }[]).map(log => ({
+    candidateId: log.candidateId,
+    candidateName: candidateMap[log.candidateId]?.name ?? 'Onbekend',
+    phone: candidateMap[log.candidateId]?.phone ?? null,
+    callbackAt: log.callbackAt,
+  }));
 }
 
 // ─── Screening Scripts ────────────────────────────────────────────────────────
 
 export async function getActiveScreeningScript(roleType?: string | null): Promise<ScreeningScript | null> {
-  const SELECT = `
-    id, name, description, isActive, roleType, createdById, createdAt, updatedAt,
-    questions:ScreeningQuestion (
-      id, scriptId, question, placeholder, required, order
-    )
-  `;
+  const SCRIPT_SELECT = 'id, name, description, isActive, roleType, createdById, createdAt, updatedAt';
 
   // 1. Try role-specific script first
+  let scriptRow: ScreeningScript | null = null;
   if (roleType) {
-    const { data: roleData } = await supabaseAdmin
+    const { data } = await supabaseAdmin
       .from('ScreeningScript')
-      .select(SELECT)
+      .select(SCRIPT_SELECT)
       .eq('isActive', true)
       .eq('roleType', roleType)
       .order('createdAt', { ascending: false })
       .limit(1)
       .maybeSingle();
-
-    if (roleData) {
-      const script = roleData as unknown as ScreeningScript;
-      if (script?.questions) script.questions = [...script.questions].sort((a, b) => a.order - b.order);
-      return script;
-    }
+    if (data) scriptRow = data as unknown as ScreeningScript;
   }
 
   // 2. Fallback: generic script (no roleType)
-  const { data, error } = await supabaseAdmin
-    .from('ScreeningScript')
-    .select(SELECT)
-    .eq('isActive', true)
-    .is('roleType', null)
-    .order('createdAt', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  if (!scriptRow) {
+    const { data } = await supabaseAdmin
+      .from('ScreeningScript')
+      .select(SCRIPT_SELECT)
+      .eq('isActive', true)
+      .is('roleType', null)
+      .order('createdAt', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) scriptRow = data as unknown as ScreeningScript;
+  }
 
-  if (error || !data) return null;
-  const script = data as unknown as ScreeningScript;
-  if (script?.questions) script.questions = [...script.questions].sort((a, b) => a.order - b.order);
-  return script;
+  if (!scriptRow) return null;
+
+  // 3. Fetch questions separately (no FK → can't use PostgREST embedded join)
+  const { data: questions } = await supabaseAdmin
+    .from('ScreeningQuestion')
+    .select('id, scriptId, question, placeholder, required, order')
+    .eq('scriptId', scriptRow.id)
+    .order('order', { ascending: true });
+
+  return {
+    ...scriptRow,
+    questions: ((questions ?? []) as unknown as ScreeningScript['questions']),
+  };
 }
 
 export async function getAllScreeningScripts(): Promise<ScreeningScript[]> {
@@ -526,66 +584,87 @@ export async function getAllScreeningScripts(): Promise<ScreeningScript[]> {
 }
 
 export async function getScreeningAnswers(candidateId: string): Promise<ScreeningAnswer[]> {
+  // No FK constraints → fetch answers then resolve relations separately
   const { data, error } = await supabaseAdmin
     .from('ScreeningAnswer')
-    .select(
-      `
-      id, questionId, candidateId, answer, answeredById, createdAt, updatedAt,
-      answeredBy:User!ScreeningAnswer_answeredById_fkey (id, name),
-      question:ScreeningQuestion!ScreeningAnswer_questionId_fkey (id, question, order)
-    `
-    )
+    .select('id, questionId, candidateId, answer, answeredById, createdAt, updatedAt')
     .eq('candidateId', candidateId);
 
   if (error) {
     console.error('getScreeningAnswers error:', error.message);
     return [];
   }
-  return (data as unknown as ScreeningAnswer[]) ?? [];
+  if (!data || data.length === 0) return [];
+
+  const rows = data as { id: string; questionId: string; candidateId: string; answer: string; answeredById: string | null; createdAt: string; updatedAt: string }[];
+
+  // Fetch related users
+  const userIds = [...new Set(rows.map(r => r.answeredById).filter(Boolean))] as string[];
+  const { data: users } = userIds.length
+    ? await supabaseAdmin.from('User').select('id, name').in('id', userIds)
+    : { data: [] };
+  const usersMap = Object.fromEntries(((users ?? []) as { id: string; name: string }[]).map(u => [u.id, u]));
+
+  // Fetch related questions
+  const questionIds = [...new Set(rows.map(r => r.questionId))];
+  const { data: questions } = await supabaseAdmin
+    .from('ScreeningQuestion')
+    .select('id, question, order')
+    .in('id', questionIds);
+  const questionsMap = Object.fromEntries(((questions ?? []) as { id: string; question: string; order: number }[]).map(q => [q.id, q]));
+
+  return rows.map(r => ({
+    ...r,
+    answeredBy: r.answeredById ? (usersMap[r.answeredById] ?? null) : null,
+    question: questionsMap[r.questionId] ?? null,
+  })) as unknown as ScreeningAnswer[];
 }
 
 // ─── Interview Checklists ─────────────────────────────────────────────────────
 
 export async function getActiveInterviewChecklist(roleType?: string | null): Promise<InterviewChecklist | null> {
-  const SELECT = `
-    id, name, description, isActive, roleType, createdById, createdAt, updatedAt,
-    items:InterviewChecklistItem (
-      id, checklistId, label, description, order
-    )
-  `;
+  const CHECKLIST_SELECT = 'id, name, description, isActive, roleType, createdById, createdAt, updatedAt';
 
   // 1. Try role-specific checklist first
+  let checklistRow: InterviewChecklist | null = null;
   if (roleType) {
-    const { data: roleData } = await supabaseAdmin
+    const { data } = await supabaseAdmin
       .from('InterviewChecklist')
-      .select(SELECT)
+      .select(CHECKLIST_SELECT)
       .eq('isActive', true)
       .eq('roleType', roleType)
       .order('createdAt', { ascending: false })
       .limit(1)
       .maybeSingle();
-
-    if (roleData) {
-      const checklist = roleData as unknown as InterviewChecklist;
-      if (checklist?.items) checklist.items = [...checklist.items].sort((a, b) => a.order - b.order);
-      return checklist;
-    }
+    if (data) checklistRow = data as unknown as InterviewChecklist;
   }
 
   // 2. Fallback: generic checklist (no roleType)
-  const { data, error } = await supabaseAdmin
-    .from('InterviewChecklist')
-    .select(SELECT)
-    .eq('isActive', true)
-    .is('roleType', null)
-    .order('createdAt', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  if (!checklistRow) {
+    const { data } = await supabaseAdmin
+      .from('InterviewChecklist')
+      .select(CHECKLIST_SELECT)
+      .eq('isActive', true)
+      .is('roleType', null)
+      .order('createdAt', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) checklistRow = data as unknown as InterviewChecklist;
+  }
 
-  if (error || !data) return null;
-  const checklist = data as unknown as InterviewChecklist;
-  if (checklist?.items) checklist.items = [...checklist.items].sort((a, b) => a.order - b.order);
-  return checklist;
+  if (!checklistRow) return null;
+
+  // 3. Fetch items separately (no FK → can't use PostgREST embedded join)
+  const { data: items } = await supabaseAdmin
+    .from('InterviewChecklistItem')
+    .select('id, checklistId, label, description, order')
+    .eq('checklistId', checklistRow.id)
+    .order('order', { ascending: true });
+
+  return {
+    ...checklistRow,
+    items: ((items ?? []) as unknown as InterviewChecklist['items']),
+  };
 }
 
 export async function getAllInterviewChecklists(): Promise<InterviewChecklist[]> {
@@ -615,21 +694,30 @@ export async function getAllInterviewChecklists(): Promise<InterviewChecklist[]>
 }
 
 export async function getChecklistResults(candidateId: string): Promise<InterviewChecklistResult[]> {
+  // No FK constraints → two-query pattern
   const { data, error } = await supabaseAdmin
     .from('InterviewChecklistResult')
-    .select(
-      `
-      id, itemId, candidateId, checked, checkedById, checkedAt,
-      checkedBy:User!InterviewChecklistResult_checkedById_fkey (id, name)
-    `
-    )
+    .select('id, itemId, candidateId, checked, checkedById, checkedAt')
     .eq('candidateId', candidateId);
 
   if (error) {
     console.error('getChecklistResults error:', error.message);
     return [];
   }
-  return (data as unknown as InterviewChecklistResult[]) ?? [];
+  if (!data || data.length === 0) return [];
+
+  const rows = data as { id: string; itemId: string; candidateId: string; checked: boolean; checkedById: string | null; checkedAt: string | null }[];
+
+  const userIds = [...new Set(rows.map(r => r.checkedById).filter(Boolean))] as string[];
+  const { data: users } = userIds.length
+    ? await supabaseAdmin.from('User').select('id, name').in('id', userIds)
+    : { data: [] };
+  const usersMap = Object.fromEntries(((users ?? []) as { id: string; name: string }[]).map(u => [u.id, u]));
+
+  return rows.map(r => ({
+    ...r,
+    checkedBy: r.checkedById ? (usersMap[r.checkedById] ?? null) : null,
+  })) as unknown as InterviewChecklistResult[];
 }
 
 // ─── Recruitment summary ──────────────────────────────────────────────────────

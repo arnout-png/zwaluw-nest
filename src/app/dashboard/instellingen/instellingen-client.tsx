@@ -2,6 +2,17 @@
 
 import { useState, useEffect } from 'react';
 
+const VACATURE_ROLLEN = [
+  { key: 'MONTEUR', label: 'Installatiemonteur' },
+  { key: 'ADVISEUR', label: 'Sales adviseur' },
+  { key: 'BINNENDIENST_TECHNISCH', label: 'Technische binnendienst' },
+  { key: 'BINNENDIENST_CALLCENTER', label: 'Callcenter medewerker' },
+  { key: 'WAREHOUSE', label: 'Magazijnmedewerker' },
+  { key: 'BACKOFFICE', label: 'Backoffice medewerker' },
+] as const;
+
+type VacatureRolKey = (typeof VACATURE_ROLLEN)[number]['key'];
+
 interface Props {
   googleConnected: boolean;
   googleStatus?: string;
@@ -13,6 +24,7 @@ interface Props {
   hasNmbrs: boolean;
   hasLinkedIn: boolean;
   linkedinStatus?: string;
+  staffUsers: { id: string; name: string; role: string }[];
 }
 
 function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
@@ -39,6 +51,7 @@ export function InstellingenClient({
   hasNmbrs,
   hasLinkedIn,
   linkedinStatus,
+  staffUsers,
 }: Props) {
   const [nmbrsStatus, setNmbrsStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
   const [linkedinImporting, setLinkedinImporting] = useState(false);
@@ -87,6 +100,49 @@ export function InstellingenClient({
       setStageAlertsSaving(false);
     }
   }
+  // Role assignments
+  const [roleAssignments, setRoleAssignments] = useState<Record<VacatureRolKey, string>>(
+    Object.fromEntries(VACATURE_ROLLEN.map((r) => [r.key, ''])) as Record<VacatureRolKey, string>
+  );
+  const [roleAssignmentsLoading, setRoleAssignmentsLoading] = useState(true);
+  const [roleAssignmentsSaving, setRoleAssignmentsSaving] = useState(false);
+  const [roleAssignmentsSaved, setRoleAssignmentsSaved] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/settings/role-assignments')
+      .then((r) => r.json())
+      .then((d) => {
+        const map: Record<string, string> = {};
+        for (const item of d.data ?? []) {
+          map[item.roleType] = item.userId ?? '';
+        }
+        setRoleAssignments((prev) => ({ ...prev, ...map }));
+      })
+      .catch(() => {})
+      .finally(() => setRoleAssignmentsLoading(false));
+  }, []);
+
+  async function saveRoleAssignments() {
+    setRoleAssignmentsSaving(true);
+    try {
+      const payload = VACATURE_ROLLEN.map((r) => ({
+        roleType: r.key,
+        userId: roleAssignments[r.key] || null,
+      }));
+      await fetch('/api/settings/role-assignments', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      setRoleAssignmentsSaved(true);
+      setTimeout(() => setRoleAssignmentsSaved(false), 2500);
+    } catch {
+      // silent fail
+    } finally {
+      setRoleAssignmentsSaving(false);
+    }
+  }
+
   const [linkedinImportResult, setLinkedinImportResult] = useState('');
   const [nmbrsMessage, setNmbrsMessage] = useState('');
   const [nmbrsImporting, setNmbrsImporting] = useState(false);
@@ -580,6 +636,88 @@ LINKEDIN_WEBHOOK_SECRET=...  # optioneel, voor webhook verificatie`}
             </div>
           )}
         </div>
+      </div>
+
+      {/* Werving */}
+      <div>
+        <h2 className="text-base font-semibold text-white mb-3">Werving</h2>
+      </div>
+
+      {/* Contract Guidelines link */}
+      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#68b0a6]/10">
+              <svg className="h-5 w-5 text-[#68b0a6]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-white">Contractrichtlijnen per rol</h2>
+              <p className="text-xs text-[#9ca3af] mt-0.5">
+                Stel arbeidsvoorwaarden in die zichtbaar zijn tijdens sollicitatiegesprekken.
+              </p>
+            </div>
+          </div>
+          <a
+            href="/dashboard/instellingen/contractrichtlijnen"
+            className="rounded-lg border border-[#363848] px-3 py-1.5 text-xs text-[#9ca3af] hover:bg-[#363848] hover:text-white transition"
+          >
+            Beheren →
+          </a>
+        </div>
+      </div>
+
+      {/* Werving — Roltoewijzing */}
+      <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#f7a247]/10">
+            <svg className="h-5 w-5 text-[#f7a247]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-white">Automatische roltoewijzing</h2>
+            <p className="text-xs text-[#9ca3af] mt-0.5">
+              Nieuwe leads worden automatisch toegewezen aan de gekozen recruiter per vacaturerol.
+            </p>
+          </div>
+        </div>
+
+        {roleAssignmentsLoading ? (
+          <p className="text-xs text-[#9ca3af]">Laden…</p>
+        ) : (
+          <div className="space-y-2">
+            {VACATURE_ROLLEN.map(({ key, label }) => (
+              <div key={key} className="flex items-center justify-between gap-4 rounded-lg bg-[#1e2028] px-3 py-2">
+                <span className="text-xs text-white w-48 shrink-0">{label}</span>
+                <select
+                  value={roleAssignments[key]}
+                  onChange={(e) => setRoleAssignments((prev) => ({ ...prev, [key]: e.target.value }))}
+                  className="flex-1 rounded-lg border border-[#363848] bg-[#14151b] px-2 py-1 text-xs text-white focus:border-[#68b0a6] focus:outline-none"
+                >
+                  <option value="">— Geen toewijzing —</option>
+                  {staffUsers.map((u) => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                onClick={saveRoleAssignments}
+                disabled={roleAssignmentsSaving}
+                className="rounded-lg bg-[#f7a247] px-4 py-2 text-xs font-semibold text-white hover:bg-[#e5932e] disabled:opacity-50 transition-colors"
+              >
+                {roleAssignmentsSaving ? 'Opslaan…' : 'Toewijzingen opslaan'}
+              </button>
+              {roleAssignmentsSaved && (
+                <span className="text-xs text-[#68b0a6]">✓ Opgeslagen</span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Stage Duration Alerts */}

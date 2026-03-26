@@ -50,6 +50,7 @@ model User {
   dossierAuthored  DossierEntry[]    @relation("DossierAuthor")
 
   // Recruitment relations
+  roleAssignments         RoleAssignment[]
   assignedCandidates      Candidate[]               @relation("CandidateAssignee")
   noteAuthored            CandidateNote[]           @relation("NoteAuthor")
   noteMentions            CandidateNoteMention[]
@@ -91,6 +92,7 @@ model CallLog {
   userId      String     // Recruiter die belde
   status      CallStatus
   notes       String?    // Optionele gespreksnotitie
+  callbackAt  DateTime?  // Terugbel datum+tijd (alleen bij TERUGBELLEN)
   createdAt   DateTime   @default(now())
 
   @@index([candidateId])
@@ -141,6 +143,10 @@ model Candidate {
   // Rejection
   rejectionReason     String?
   rejectionEmailSent  Boolean  @default(false)
+
+  // Interview outcome (can be recorded after the interview)
+  interviewOutcome   String?
+  interviewOutcomeAt DateTime?
 
   // Relations
   interviewScores   InterviewScore[]
@@ -636,6 +642,9 @@ model JobOpening {
   hoursPerWeek String?
   salaryRange  String?
   imageUrl     String?
+  benefits     String?     // Newline-separated benefits list
+  perks        String?     // Comma-separated perks tags
+  impact       String?     // Free text — daily impact paragraph
   roleType     VacatureRol?
   isActive     Boolean     @default(true)
   createdById  String
@@ -647,4 +656,24 @@ model JobOpening {
 
   @@index([isActive])
   @@index([slug])
+}
+
+// ─────────────────────────────────────────────
+// Role Assignments — auto-assign leads per vacancy role
+// ─────────────────────────────────────────────
+
+model RoleAssignment {
+  roleType  VacatureRol @id
+  userId    String
+  user      User        @relation(fields: [userId], references: [id])
+}
+
+// ─────────────────────────────────────────────
+// Contract Guidelines — per-role info viewable during interview
+// ─────────────────────────────────────────────
+
+model ContractGuideline {
+  roleType  VacatureRol @id
+  content   String      // Markdown
+  updatedAt DateTime    @updatedAt
 }

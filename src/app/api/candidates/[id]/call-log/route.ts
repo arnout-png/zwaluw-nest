@@ -16,7 +16,7 @@ export async function GET(
 
   const { data, error } = await supabaseAdmin
     .from('CallLog')
-    .select('id, candidateId, userId, status, notes, createdAt')
+    .select('id, candidateId, userId, status, notes, callbackAt, createdAt')
     .eq('candidateId', candidateId)
     .order('createdAt', { ascending: false });
 
@@ -25,7 +25,7 @@ export async function GET(
     return NextResponse.json({ data: [] });
   }
 
-  const rows = (data ?? []) as { id: string; candidateId: string; userId: string; status: string; notes: string | null; createdAt: string }[];
+  const rows = (data ?? []) as { id: string; candidateId: string; userId: string; status: string; notes: string | null; callbackAt: string | null; createdAt: string }[];
   if (!rows.length) return NextResponse.json({ data: [] });
 
   const userIds = [...new Set(rows.map(r => r.userId))];
@@ -51,6 +51,7 @@ export async function POST(
   const body = await request.json();
   const status = body.status as CallStatus;
   const notes = (body.notes ?? '').trim() || null;
+  const callbackAt = body.callbackAt ? new Date(body.callbackAt).toISOString() : null;
 
   if (!VALID_STATUSES.includes(status)) {
     return NextResponse.json({ error: 'Ongeldige belstatus.' }, { status: 400 });
@@ -65,9 +66,10 @@ export async function POST(
       userId: session.userId,
       status,
       notes,
+      callbackAt,
       createdAt: new Date().toISOString(),
     })
-    .select('id, candidateId, userId, status, notes, createdAt')
+    .select('id, candidateId, userId, status, notes, callbackAt, createdAt')
     .single();
 
   if (error) {

@@ -17,7 +17,7 @@ export function KanbanColumn({ title, status, candidates, color, onMove }: Kanba
   const { setNodeRef, isOver } = useDroppable({ id: droppableId });
 
   return (
-    <div className="flex flex-col min-w-[220px] max-w-[280px] flex-1">
+    <div className="flex flex-col w-[270px] shrink-0">
       {/* Column header */}
       <div className={`flex items-center justify-between rounded-t-lg px-3 py-2 ${color}`}>
         <span className="text-sm font-semibold text-white">{title}</span>

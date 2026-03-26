@@ -5,10 +5,12 @@ import { getCandidate } from '@/lib/data';
 import { CandidateNotesClient } from './candidate-notes-client';
 import { CandidateStageClient } from './candidate-stage-client';
 import { CandidateAssignClient } from './candidate-assign-client';
-import { CandidateScreeningClient } from './candidate-screening-client';
-import { CandidateChecklistClient } from './candidate-checklist-client';
 import { CandidateCallLogClient } from './candidate-call-log-client';
 import { CandidatePersonalDetailsClient } from './candidate-personal-details-client';
+import { CandidateScreeningClient } from './candidate-screening-client';
+import { CandidateChecklistClient } from './candidate-checklist-client';
+import { CandidateWorkflowOutcomeClient } from './candidate-workflow-outcome-client';
+import { CandidateInterviewOutcomeClient } from './candidate-interview-outcome-client';
 import {
   getActiveScreeningScript,
   getScreeningAnswers,
@@ -16,6 +18,7 @@ import {
   getChecklistResults,
   getCallLogs,
 } from '@/lib/data';
+import { supabaseAdmin } from '@/lib/supabase';
 import type { CandidateStatus } from '@/types';
 import { VACATURE_ROL_LABELS } from '@/types';
 
@@ -38,6 +41,33 @@ const STATUS_COLORS: Record<CandidateStatus, string> = {
   HIRED: 'bg-green-500/10 text-green-400',
   REJECTED: 'bg-red-500/10 text-red-400',
 };
+
+function ContractGuidelineBlock({ content, rolLabel }: { content: string; rolLabel: string }) {
+  return (
+    <details className="group rounded-xl border border-[#68b0a6]/30 bg-[#252732]">
+      <summary className="flex cursor-pointer items-center justify-between p-5 list-none">
+        <div className="flex items-center gap-3">
+          <span className="text-lg">📄</span>
+          <div>
+            <h2 className="text-sm font-semibold text-white">Contractrichtlijnen — {rolLabel}</h2>
+            <p className="text-xs text-[#9ca3af] mt-0.5">Klik om arbeidsvoorwaarden te bekijken</p>
+          </div>
+        </div>
+        <svg
+          className="h-4 w-4 text-[#9ca3af] transition-transform group-open:rotate-180"
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </summary>
+      <div className="px-5 pb-5 border-t border-[#363848] pt-4">
+        <div className="prose prose-sm prose-invert max-w-none">
+          <pre className="whitespace-pre-wrap text-sm text-[#e8e9ed] font-sans leading-relaxed">{content}</pre>
+        </div>
+      </div>
+    </details>
+  );
+}
 
 function InfoRow({ label, value }: { label: string; value?: string | number | null }) {
   return (
@@ -78,20 +108,37 @@ export default async function CandidateDetailPage({
   if (!candidate) notFound();
 
   const roleType = candidate.jobOpening?.roleType ?? null;
-  const [screeningScript, screeningAnswers, interviewChecklist, checklistResults, callLogs] =
+
+  // Always fetch all workflow data — server renders sections based on status
+  const [screeningScript, screeningAnswers, interviewChecklist, checklistResults, callLogs, contractGuidelineRes] =
     await Promise.all([
       getActiveScreeningScript(roleType),
       getScreeningAnswers(id),
       getActiveInterviewChecklist(roleType),
       getChecklistResults(id),
       getCallLogs(id),
+      roleType
+        ? supabaseAdmin.from('ContractGuideline').select('content').eq('roleType', roleType).single()
+        : Promise.resolve({ data: null }),
     ]);
+
+  const contractGuideline = (contractGuidelineRes.data as { content?: string } | null)?.content ?? null;
 
   const consentDaysLeft = candidate.consentExpiresAt
     ? Math.ceil(
         (new Date(candidate.consentExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
       )
     : null;
+
+  const candidateName = `${candidate.firstName ?? ''} ${candidate.lastName ?? ''}`.trim();
+
+  // Visibility flags — server-driven, no client state needed
+  const showScreening = ['PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED'].includes(candidate.status);
+  const showOutcome = ['PRE_SCREENING', 'SCREENING_DONE'].includes(candidate.status);
+  const showChecklist = ['INTERVIEW', 'RESERVE_BANK', 'HIRED'].includes(candidate.status);
+  const showInterviewOutcome = candidate.status === 'INTERVIEW';
+  const showContractGuideline = ['INTERVIEW', 'RESERVE_BANK', 'HIRED'].includes(candidate.status) && !!contractGuideline;
+  const showInterviewOutcomeNotes = ['INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED'].includes(candidate.status);
 
   return (
     <div className="space-y-6 fade-in">
@@ -161,32 +208,100 @@ export default async function CandidateDetailPage({
         </div>
       </div>
 
-      {/* Bel opvolging + Pre-screening + Interview checklist (unified workflow) */}
+      {/* Bel opvolging */}
       <CandidateCallLogClient
         candidateId={candidate.id}
         candidateStatus={candidate.status}
         candidatePhone={candidate.phone ?? null}
-        candidateName={`${candidate.firstName ?? ''} ${candidate.lastName ?? ''}`.trim()}
         initialCallLogs={callLogs}
-        screeningSection={
-          screeningScript ? (
-            <CandidateScreeningClient
-              candidateId={candidate.id}
-              script={screeningScript}
-              initialAnswers={screeningAnswers}
-            />
-          ) : null
-        }
-        checklistSection={
-          interviewChecklist ? (
-            <CandidateChecklistClient
-              candidateId={candidate.id}
-              checklist={interviewChecklist}
-              initialResults={checklistResults}
-            />
-          ) : null
-        }
       />
+
+      {/* Pre-screening vragen — server-rendered when status ≥ PRE_SCREENING */}
+      {showScreening && screeningScript && (
+        <div className="rounded-xl border border-[#68b0a6]/30 bg-[#252732] p-5 space-y-4">
+          <div className="flex items-center gap-3">
+            <span className="text-lg">📋</span>
+            <div>
+              <h2 className="text-sm font-semibold text-white">Pre-screening vragen</h2>
+              <p className="text-xs text-[#9ca3af] mt-0.5">{screeningScript.name}</p>
+            </div>
+          </div>
+          <CandidateScreeningClient
+            candidateId={candidate.id}
+            script={screeningScript}
+            initialAnswers={screeningAnswers}
+          />
+        </div>
+      )}
+
+      {showScreening && !screeningScript && (
+        <div className="rounded-xl border border-dashed border-[#363848] bg-[#252732] p-5">
+          <p className="text-xs text-[#9ca3af] text-center">
+            Geen actief screeningscript gevonden voor deze rol.{' '}
+            {!candidate.jobOpening
+              ? 'Wijs eerst een vacature toe aan de kandidaat, of maak een generiek script aan via Instellingen → Screening.'
+              : 'Maak een screeningscript aan voor deze rol via Instellingen → Screening.'}
+          </p>
+        </div>
+      )}
+
+      {/* Uitkomst pre-screening — Geen interesse / Afspraak plannen */}
+      {showOutcome && (
+        <CandidateWorkflowOutcomeClient
+          candidateId={candidate.id}
+          candidateStatus={candidate.status}
+          candidateName={candidateName}
+        />
+      )}
+
+      {/* Interview checklist — server-rendered when status ≥ INTERVIEW */}
+      {showChecklist && interviewChecklist && (
+        <div className="rounded-xl border border-purple-500/30 bg-[#252732] p-5 space-y-4">
+          <div className="flex items-center gap-3">
+            <span className="text-lg">✅</span>
+            <div>
+              <h2 className="text-sm font-semibold text-white">Sollicitatiegesprek checklist</h2>
+              <p className="text-xs text-[#9ca3af] mt-0.5">{interviewChecklist.name}</p>
+            </div>
+          </div>
+          <CandidateChecklistClient
+            candidateId={candidate.id}
+            checklist={interviewChecklist}
+            initialResults={checklistResults}
+          />
+        </div>
+      )}
+
+      {showChecklist && !interviewChecklist && (
+        <div className="rounded-xl border border-dashed border-[#363848] bg-[#252732] p-5">
+          <p className="text-xs text-[#9ca3af] text-center">
+            Geen actieve interview checklist voor deze rol. Voeg er een toe via Instellingen.
+          </p>
+        </div>
+      )}
+
+      {/* Contract richtlijnen — toon bij INTERVIEW en later */}
+      {showContractGuideline && (
+        <ContractGuidelineBlock content={contractGuideline!} rolLabel={VACATURE_ROL_LABELS[roleType!]} />
+      )}
+
+      {/* Uitkomst sollicitatiegesprek — Aangenomen / Reserve bank / Afwijzen */}
+      {showInterviewOutcome && (
+        <CandidateWorkflowOutcomeClient
+          candidateId={candidate.id}
+          candidateStatus={candidate.status}
+          candidateName={candidateName}
+        />
+      )}
+
+      {/* Gespreksuitkomst notities — later vastleggen */}
+      {showInterviewOutcomeNotes && (
+        <CandidateInterviewOutcomeClient
+          candidateId={candidate.id}
+          initialOutcome={candidate.interviewOutcome}
+          initialOutcomeAt={candidate.interviewOutcomeAt}
+        />
+      )}
 
       {/* Persoonlijke gegevens — bewerkbaar */}
       <CandidatePersonalDetailsClient candidate={candidate} />

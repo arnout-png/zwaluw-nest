@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
+import { autoAssignCandidate } from '@/lib/recruitment';
 
 function splitName(name: string) {
   const parts = name.trim().split(' ');
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { firstName, lastName, name: nameField, email, phone, salaryExpectation, location } = body;
+  const { firstName, lastName, name: nameField, email, phone, salaryExpectation, location, jobOpeningId } = body;
 
   // Accept either combined name or firstName+lastName
   const fullName = nameField || `${firstName ?? ''} ${lastName ?? ''}`.trim();
@@ -70,15 +71,22 @@ export async function POST(request: NextRequest) {
       status: 'NEW_LEAD',
       salaryExpectation: salaryExpectation ? String(salaryExpectation) : null,
       location: location || null,
+      jobOpeningId: jobOpeningId || null,
       consentGiven: true,
       consentDate: new Date().toISOString(),
       consentExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      stageUpdatedAt: new Date().toISOString(),
     })
     .select()
     .single();
 
   if (error) {
     return NextResponse.json({ error: 'Kan kandidaat niet aanmaken.' }, { status: 500 });
+  }
+
+  // Auto-assign based on vacancy role
+  if (jobOpeningId) {
+    await autoAssignCandidate(data.id, fullName, jobOpeningId);
   }
 
   return NextResponse.json({ data: { ...data, ...splitName(data.name) } }, { status: 201 });

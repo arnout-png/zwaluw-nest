@@ -2,6 +2,31 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 
+type RawAnswer = {
+  id?: string;
+  questionId: string;
+  candidateId: string;
+  answer: string;
+  answeredById: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+async function enrichAnswers(rows: RawAnswer[]) {
+  if (!rows.length) return rows;
+  const userIds = [...new Set(rows.map(r => r.answeredById).filter(Boolean))] as string[];
+  const { data: users } = userIds.length
+    ? await supabaseAdmin.from('User').select('id, name').in('id', userIds)
+    : { data: [] };
+  const usersMap = Object.fromEntries(
+    ((users ?? []) as { id: string; name: string }[]).map(u => [u.id, u])
+  );
+  return rows.map(r => ({
+    ...r,
+    answeredBy: r.answeredById ? (usersMap[r.answeredById] ?? null) : null,
+  }));
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -16,15 +41,12 @@ export async function GET(
 
   const { data, error } = await supabaseAdmin
     .from('ScreeningAnswer')
-    .select(
-      `id, questionId, candidateId, answer, answeredById, createdAt, updatedAt,
-       answeredBy:User!ScreeningAnswer_answeredById_fkey (id, name),
-       question:ScreeningQuestion!ScreeningAnswer_questionId_fkey (id, question, order)`
-    )
+    .select('id, questionId, candidateId, answer, answeredById, createdAt, updatedAt')
     .eq('candidateId', candidateId);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ data: data ?? [] });
+  const enriched = await enrichAnswers((data ?? []) as RawAnswer[]);
+  return NextResponse.json({ data: enriched });
 }
 
 /**
@@ -57,15 +79,13 @@ export async function POST(
     updatedAt: now,
   }));
 
-  // Upsert on (questionId, candidateId)
+  // Upsert on (questionId, candidateId) — no FK join in select
   const { data, error } = await supabaseAdmin
     .from('ScreeningAnswer')
     .upsert(rows, { onConflict: 'questionId,candidateId' })
-    .select(
-      `id, questionId, candidateId, answer, answeredById, createdAt, updatedAt,
-       answeredBy:User!ScreeningAnswer_answeredById_fkey (id, name)`
-    );
+    .select('id, questionId, candidateId, answer, answeredById, createdAt, updatedAt');
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ data: data ?? [] }, { status: 201 });
+  const enriched = await enrichAnswers((data ?? []) as RawAnswer[]);
+  return NextResponse.json({ data: enriched }, { status: 201 });
 }

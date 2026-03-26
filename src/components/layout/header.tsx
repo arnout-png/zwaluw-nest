@@ -99,7 +99,7 @@ export function Header({ title, breadcrumbs }: HeaderProps) {
 
           {/* Notification dropdown */}
           {showNotifications && (
-            <div className="absolute right-0 top-10 w-80 rounded-xl border border-[#363848] bg-[#252732] shadow-xl">
+            <div className="absolute right-0 top-10 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-[#363848] bg-[#252732] shadow-xl">
               <div className="flex items-center justify-between px-4 py-3 border-b border-[#363848]">
                 <span className="text-sm font-medium text-white">Meldingen</span>
                 {unreadCount > 0 && (

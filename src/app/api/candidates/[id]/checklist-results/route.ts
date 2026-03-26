@@ -2,6 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 
+type RawResult = {
+  id?: string;
+  itemId: string;
+  candidateId: string;
+  checked: boolean;
+  checkedById: string | null;
+  checkedAt: string | null;
+};
+
+async function enrichResult(row: RawResult) {
+  if (!row.checkedById) return { ...row, checkedBy: null };
+  const { data } = await supabaseAdmin
+    .from('User').select('id, name').eq('id', row.checkedById).maybeSingle();
+  return { ...row, checkedBy: data ?? null };
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -16,14 +32,23 @@ export async function GET(
 
   const { data, error } = await supabaseAdmin
     .from('InterviewChecklistResult')
-    .select(
-      `id, itemId, candidateId, checked, checkedById, checkedAt,
-       checkedBy:User!InterviewChecklistResult_checkedById_fkey (id, name)`
-    )
+    .select('id, itemId, candidateId, checked, checkedById, checkedAt')
     .eq('candidateId', candidateId);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ data: data ?? [] });
+
+  const rows = (data ?? []) as RawResult[];
+  if (!rows.length) return NextResponse.json({ data: [] });
+
+  const userIds = [...new Set(rows.map(r => r.checkedById).filter(Boolean))] as string[];
+  const { data: users } = userIds.length
+    ? await supabaseAdmin.from('User').select('id, name').in('id', userIds)
+    : { data: [] };
+  const usersMap = Object.fromEntries(((users ?? []) as { id: string; name: string }[]).map(u => [u.id, u]));
+
+  return NextResponse.json({
+    data: rows.map(r => ({ ...r, checkedBy: r.checkedById ? (usersMap[r.checkedById] ?? null) : null })),
+  });
 }
 
 /**
@@ -58,12 +83,10 @@ export async function PATCH(
   const { data, error } = await supabaseAdmin
     .from('InterviewChecklistResult')
     .upsert(row, { onConflict: 'itemId,candidateId' })
-    .select(
-      `id, itemId, candidateId, checked, checkedById, checkedAt,
-       checkedBy:User!InterviewChecklistResult_checkedById_fkey (id, name)`
-    )
+    .select('id, itemId, candidateId, checked, checkedById, checkedAt')
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ data });
+  const enriched = await enrichResult(data as RawResult);
+  return NextResponse.json({ data: enriched });
 }

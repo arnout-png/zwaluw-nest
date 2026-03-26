@@ -23,6 +23,9 @@ export async function PATCH(
   if ('hoursPerWeek' in body) updates.hoursPerWeek = body.hoursPerWeek ?? null;
   if ('salaryRange' in body) updates.salaryRange = body.salaryRange ?? null;
   if ('imageUrl' in body) updates.imageUrl = body.imageUrl ?? null;
+  if ('benefits' in body) updates.benefits = body.benefits ?? null;
+  if ('perks' in body) updates.perks = body.perks ?? null;
+  if ('impact' in body) updates.impact = body.impact ?? null;
   if ('roleType' in body) updates.roleType = body.roleType ?? null;
   if ('isActive' in body) updates.isActive = body.isActive;
 
