@@ -99,6 +99,12 @@ export async function sendApplicationCapiEvent(event: ApplicationCapiEvent): Pro
   const fbc = event.fbc ?? (event.fbclid ? fbcFromFbclid(event.fbclid) : null);
   if (fbc) userData.fbc = fbc;
 
+  // META_CAPI_TEST_EVENT_CODE: alleen zetten om te verifieren. Events met een
+  // testcode landen uitsluitend in het tabblad Test Events van Events Manager
+  // en tellen niet mee in rapportage of optimalisatie. Weer weghalen na de test,
+  // anders verdwijnen echte conversies uit je cijfers.
+  const testEventCode = process.env.META_CAPI_TEST_EVENT_CODE;
+
   const payload = {
     data: [
       {
@@ -111,6 +117,7 @@ export async function sendApplicationCapiEvent(event: ApplicationCapiEvent): Pro
       },
     ],
     access_token: accessToken,
+    ...(testEventCode ? { test_event_code: testEventCode } : {}),
   };
 
   try {
