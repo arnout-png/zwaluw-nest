@@ -5,6 +5,7 @@ import type { Appointment } from '@/types';
 interface WeekCalendarProps {
   weekStart: Date;
   appointments: Appointment[];
+  onAppointmentClick?: (appointment: Appointment) => void;
 }
 
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 8); // 08:00–18:00
@@ -40,7 +41,7 @@ function getDurationMin(appt: Appointment): number {
   return 60;
 }
 
-export function WeekCalendar({ weekStart, appointments }: WeekCalendarProps) {
+export function WeekCalendar({ weekStart, appointments, onAppointmentClick }: WeekCalendarProps) {
   // Build 7 day dates
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
@@ -57,8 +58,9 @@ export function WeekCalendar({ weekStart, appointments }: WeekCalendarProps) {
   function getApptsForDayHour(day: Date, hour: number) {
     const dateStr = day.toISOString().split('T')[0];
     return appointments.filter((a) => {
-      // Match on date field (YYYY-MM-DD)
-      const apptDate = a.date ?? (a.startTime ? new Date(a.startTime).toISOString().split('T')[0] : '');
+      // Normalize: "2026-03-30T00:00:00" → "2026-03-30"
+      const raw = a.date ?? (a.startTime ? new Date(a.startTime).toISOString() : '');
+      const apptDate = raw.split('T')[0];
       return apptDate === dateStr && getApptHour(a) === hour;
     });
   }
@@ -108,6 +110,7 @@ export function WeekCalendar({ weekStart, appointments }: WeekCalendarProps) {
                     return (
                       <div
                         key={appt.id}
+                        onClick={() => onAppointmentClick?.(appt)}
                         className={`rounded px-1.5 py-1 text-[10px] border-l-2 text-white ${color} mb-0.5 cursor-pointer hover:opacity-90 transition-opacity`}
                         title={`${empName} — ${custName}`}
                       >

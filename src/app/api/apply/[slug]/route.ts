@@ -1,7 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { sendNewCandidateEmail } from '@/lib/email';
+import { sendNewCandidateEmail, isEmailConfigured } from '@/lib/email';
 import { autoAssignCandidate } from '@/lib/recruitment';
+
+/** Strip undefined and empty-string values so an update never blanks existing data. */
+function filled(obj: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(obj).filter((entry): entry is [string, string] => !!entry[1])
+  );
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  NEW_LEAD: 'Nieuw',
+  CONTACTED: 'Gecontacteerd',
+  PRE_SCREENING: 'Pre-screening',
+  SCREENING_DONE: 'Screening klaar',
+  INTERVIEW: 'Sollicitatiegesprek',
+  RESERVE_BANK: 'Reserve Bank',
+  HIRED: 'Aangenomen',
+  REJECTED: 'Afgewezen',
+  WITHDRAWN: 'Teruggetrokken',
+};
 
 export async function POST(
   request: NextRequest,
@@ -54,28 +73,49 @@ export async function POST(
     .from('Candidate')
     .select('id, status')
     .eq('email', body.email)
-    .single();
+    .maybeSingle();
 
   let candidateId: string;
+  let reopenedFrom: string | null = null;
 
   if (existing) {
-    // Update existing candidate if they're re-applying
+    // Re-applicant: reset to NEW_LEAD so the card resurfaces in the "Nieuw"
+    // column. Skip only for HIRED — that is an employee, not a new applicant.
+    const previousStatus = existing.status as string;
+    const reopen = previousStatus !== 'HIRED';
+    if (reopen && previousStatus !== 'NEW_LEAD') reopenedFrom = previousStatus;
+
     await supabaseAdmin
       .from('Candidate')
       .update({
         name,
-        phone: body.phone ?? null,
-        salaryExpectation: body.salaryExpectation ? String(body.salaryExpectation) : null,
-        linkedinUrl: body.linkedinUrl ?? null,
-        cvUrl: body.cvUrl ?? null,
-        street: body.street ?? null,
-        city: body.city ?? null,
-        postalCode: body.postalCode ?? null,
+        // Only overwrite what the applicant actually filled in — a field that is
+        // absent from the form must not wipe data we already have on record.
+        ...filled({
+          phone: body.phone,
+          salaryExpectation: body.salaryExpectation ? String(body.salaryExpectation) : undefined,
+          linkedinUrl: body.linkedinUrl,
+          cvUrl: body.cvUrl,
+          street: body.street,
+          city: body.city,
+          postalCode: body.postalCode,
+        }),
         jobOpeningId: job.id,
         consentGiven: true,
         consentDate,
         consentExpiresAt,
         updatedAt: now,
+        // Fresh application → back to the top of the pipeline.
+        ...(reopen
+          ? {
+              status: 'NEW_LEAD',
+              stageUpdatedAt: now,
+              leadSource: 'MANUAL',
+              // Stale rejection state must not stick to a reopened candidate.
+              rejectionReason: null,
+              rejectionEmailSent: false,
+            }
+          : {}),
       })
       .eq('id', existing.id);
     candidateId = existing.id;
@@ -114,22 +154,32 @@ export async function POST(
   // Auto-assign based on vacancy role
   await autoAssignCandidate(candidateId, name, job.id);
 
-  // Add motivation as a note if provided (use first admin as author)
+  // Log the application as a note (use first admin as author)
+  const noteBlocks: string[] = [];
+  if (reopenedFrom) {
+    noteBlocks.push(
+      `**Heropend na nieuwe sollicitatie** — stond op "${STATUS_LABELS[reopenedFrom] ?? reopenedFrom}", teruggezet naar Nieuw.`
+    );
+  }
   if (body.motivation) {
+    noteBlocks.push(`**Motivatie (sollicitatie via ${job.title}):**\n\n${body.motivation}`);
+  }
+
+  if (noteBlocks.length > 0) {
     const { data: firstAdmin } = await supabaseAdmin
       .from('User')
       .select('id')
       .eq('role', 'ADMIN')
       .eq('isActive', true)
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (firstAdmin) {
       await supabaseAdmin
         .from('CandidateNote')
         .insert({
           candidateId,
-          content: `**Motivatie (sollicitatie via ${job.title}):**\n\n${body.motivation}`,
+          content: noteBlocks.join('\n\n'),
           authorId: firstAdmin.id,
           createdAt: now,
         });
@@ -146,8 +196,10 @@ export async function POST(
   const notifRows = (admins ?? []).map((a: { id: string }) => ({
     userId: a.id,
     type: 'NEW_CANDIDATE',
-    title: `Nieuwe sollicitant: ${name}`,
-    message: `${name} heeft gesolliciteerd op "${job.title}".`,
+    title: reopenedFrom ? `Sollicitatie opnieuw: ${name}` : `Nieuwe sollicitant: ${name}`,
+    message: reopenedFrom
+      ? `${name} heeft opnieuw gesolliciteerd op "${job.title}" (stond op ${STATUS_LABELS[reopenedFrom] ?? reopenedFrom}).`
+      : `${name} heeft gesolliciteerd op "${job.title}".`,
     isRead: false,
     linkUrl: `/dashboard/werving/${candidateId}`,
   }));
@@ -157,14 +209,16 @@ export async function POST(
   }
 
   // Email notification to admin
-  if (process.env.RESEND_API_KEY && process.env.ADMIN_EMAIL) {
+  if (isEmailConfigured() && process.env.ADMIN_EMAIL) {
     try {
       await sendNewCandidateEmail({
         to: process.env.ADMIN_EMAIL,
         candidateName: name,
         email: body.email!,
         phone: body.phone,
-        source: `Sollicitatie via ${job.title}`,
+        source: reopenedFrom
+          ? `Nieuwe sollicitatie via ${job.title} (heropend)`
+          : `Sollicitatie via ${job.title}`,
         portalUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/dashboard/werving/${candidateId}`,
       });
     } catch (err) {

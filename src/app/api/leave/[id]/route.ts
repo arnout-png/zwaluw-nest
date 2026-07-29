@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
-import { sendLeaveApprovedEmail, sendLeaveRejectedEmail } from '@/lib/email';
+import { sendLeaveApprovedEmail, sendLeaveRejectedEmail, isEmailConfigured } from '@/lib/email';
 
 export async function PATCH(
   request: NextRequest,
@@ -12,7 +12,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
   }
 
-  if (session.role !== 'ADMIN' && session.role !== 'PLANNER') {
+  if (!['ADMIN', 'MANAGER', 'PLANNER'].includes(session.role)) {
     return NextResponse.json(
       { error: 'Alleen beheerders en planners kunnen verlof goedkeuren of afwijzen.' },
       { status: 403 }
@@ -38,21 +38,26 @@ export async function PATCH(
       respondedAt: new Date().toISOString(),
     })
     .eq('id', id)
-    .select(
-      `id, employeeProfileId, type, startDate, endDate, totalDays, status,
-       employeeProfile:EmployeeProfile!LeaveRequest_employeeProfileId_fkey (
-         userId,
-         user:User!EmployeeProfile_userId_fkey (id, name, email)
-       )`
-    )
+    .select('id, employeeProfileId, type, startDate, endDate, totalDays, status')
     .single();
 
   if (error) {
     return NextResponse.json({ error: 'Kan verlofaanvraag niet bijwerken.' }, { status: 500 });
   }
 
+  // Enrich with employee user info
+  let employeeProfile: { userId: string; user: { id: string; name: string; email: string } } | null = null;
+  if (data.employeeProfileId) {
+    const { data: ep } = await supabaseAdmin.from('EmployeeProfile').select('userId').eq('id', data.employeeProfileId).maybeSingle();
+    if (ep) {
+      const { data: usr } = await supabaseAdmin.from('User').select('id, name, email').eq('id', (ep as { userId: string }).userId).maybeSingle();
+      employeeProfile = { userId: (ep as { userId: string }).userId, user: (usr as { id: string; name: string; email: string }) ?? { id: '', name: 'Onbekend', email: '' } };
+    }
+  }
+  (data as Record<string, unknown>).employeeProfile = employeeProfile;
+
   // Send email notification to the employee (best-effort)
-  if (process.env.RESEND_API_KEY) {
+  if (isEmailConfigured()) {
     try {
       const profileRaw = (data as Record<string, unknown>).employeeProfile;
       const profile = Array.isArray(profileRaw) ? profileRaw[0] : profileRaw;

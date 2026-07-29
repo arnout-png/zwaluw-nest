@@ -26,12 +26,7 @@ export async function GET(request: NextRequest) {
     .from('Appointment')
     .select(
       `id, employeeProfileId, customerId, title, description, date,
-       startTime, endTime, location, status, saleValue, createdAt, updatedAt,
-       customer:Customer (id, name, phone, address, city),
-       employeeProfile:EmployeeProfile!Appointment_employeeProfileId_fkey (
-         id, userId,
-         user:User!EmployeeProfile_userId_fkey (id, name, role)
-       )`
+       startTime, endTime, location, status, saleValue, createdAt, updatedAt`
     )
     .order('startTime');
 
@@ -56,7 +51,38 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Kan afspraken niet ophalen.' }, { status: 500 });
   }
 
-  return NextResponse.json({ data });
+  const rows = (data ?? []) as Record<string, unknown>[];
+
+  // Enrich with employeeProfile + user and customer data
+  const epIds = [...new Set(rows.map(r => r.employeeProfileId as string).filter(Boolean))];
+  const custIds = [...new Set(rows.map(r => r.customerId as string).filter(Boolean))];
+
+  let epMap: Record<string, { id: string; userId: string; user: { id: string; name: string; role: string } }> = {};
+  if (epIds.length) {
+    const { data: eps } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', epIds);
+    if (eps?.length) {
+      const userIds = (eps as { userId: string }[]).map(e => e.userId);
+      const { data: users } = await supabaseAdmin.from('User').select('id, name, role').in('id', userIds);
+      const usersMap = Object.fromEntries(((users ?? []) as { id: string; name: string; role: string }[]).map(u => [u.id, u]));
+      for (const ep of eps as { id: string; userId: string }[]) {
+        epMap[ep.id] = { ...ep, user: usersMap[ep.userId] ?? { id: ep.userId, name: 'Onbekend', role: '' } };
+      }
+    }
+  }
+
+  let custMap: Record<string, { id: string; name: string; phone?: string; address?: string; city?: string }> = {};
+  if (custIds.length) {
+    const { data: custs } = await supabaseAdmin.from('Customer').select('id, name, phone, address, city').in('id', custIds);
+    if (custs) custMap = Object.fromEntries((custs as { id: string; name: string }[]).map(c => [c.id, c]));
+  }
+
+  const enriched = rows.map(r => ({
+    ...r,
+    employeeProfile: r.employeeProfileId ? epMap[r.employeeProfileId as string] ?? null : null,
+    customer: r.customerId ? custMap[r.customerId as string] ?? null : null,
+  }));
+
+  return NextResponse.json({ data: enriched });
 }
 
 export async function POST(request: NextRequest) {
@@ -65,7 +91,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
   }
 
-  if (session.role !== 'ADMIN' && session.role !== 'PLANNER') {
+  if (!['ADMIN', 'MANAGER', 'PLANNER'].includes(session.role)) {
     return NextResponse.json(
       { error: 'Alleen beheerders en planners kunnen afspraken aanmaken.' },
       { status: 403 }
@@ -128,15 +154,7 @@ export async function POST(request: NextRequest) {
       status: 'SCHEDULED',
       createdById: session.userId,
     })
-    .select(
-      `id, employeeProfileId, customerId, title, description, date,
-       startTime, endTime, location, status, createdAt, updatedAt,
-       customer:Customer (id, name, phone, address, city),
-       employeeProfile:EmployeeProfile!Appointment_employeeProfileId_fkey (
-         id, userId,
-         user:User!EmployeeProfile_userId_fkey (id, name, role)
-       )`
-    )
+    .select('id, employeeProfileId, customerId, title, description, date, startTime, endTime, location, status, createdAt, updatedAt')
     .single();
 
   if (error) {

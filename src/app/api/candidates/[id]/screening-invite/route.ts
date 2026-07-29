@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
-import { sendPrescreeningEmail } from '@/lib/email';
+import { sendPrescreeningEmail, isEmailConfigured } from '@/lib/email';
+import { sendScreeningInviteSMS } from '@/lib/sms';
+import { logAudit, getIp } from '@/lib/audit';
 import { randomUUID } from 'crypto';
 
 /**
@@ -9,7 +11,7 @@ import { randomUUID } from 'crypto';
  * Generates a unique pre-screening token, saves it to the Candidate record,
  * and sends the invitation email to the candidate.
  *
- * Requires: RESEND_API_KEY and NEXT_PUBLIC_APP_URL env vars.
+ * Requires: GOOGLE_SERVICE_ACCOUNT_CREDENTIALS and NEXT_PUBLIC_APP_URL env vars.
  */
 export async function POST(
   _request: NextRequest,
@@ -17,14 +19,14 @@ export async function POST(
 ) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
-  if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
+  if (!['ADMIN', 'MANAGER'].includes(session.role)) return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
 
   const { id } = await params;
 
   // Fetch candidate
   const { data: candidate, error: fetchError } = await supabaseAdmin
     .from('Candidate')
-    .select('id, firstName, lastName, email, status, prescreeningToken')
+    .select('id, firstName, lastName, name, email, phone, status, prescreeningToken')
     .eq('id', id)
     .single();
 
@@ -56,11 +58,13 @@ export async function POST(
     return NextResponse.json({ error: 'Kan uitnodiging niet aanmaken.' }, { status: 500 });
   }
 
+  logAudit({ userId: session.userId, action: 'STATUS_CHANGE', entity: 'Candidate', entityId: id, details: { from: candidate.status, to: 'PRE_SCREENING', trigger: 'screening_invite' }, ipAddress: getIp(_request) });
+
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
   const screeningUrl = `${baseUrl}/screening/${token}`;
 
-  // Send email if Resend is configured
-  if (process.env.RESEND_API_KEY) {
+  // Send email if the Gmail transport is configured
+  if (isEmailConfigured()) {
     try {
       await sendPrescreeningEmail({
         to: candidate.email as string,
@@ -80,10 +84,23 @@ export async function POST(
     }
   }
 
+  // Send SMS if phone is available
+  if (candidate.phone) {
+    try {
+      await sendScreeningInviteSMS({
+        to: candidate.phone as string,
+        candidateName: (candidate.name as string) ?? (candidate.firstName as string) ?? 'Kandidaat',
+        url: screeningUrl,
+      });
+    } catch (err) {
+      console.error('Screening invite SMS failed:', err);
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     screeningUrl,
-    emailSent: !!process.env.RESEND_API_KEY,
+    emailSent: isEmailConfigured(),
     expiresAt,
   });
 }

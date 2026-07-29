@@ -7,7 +7,7 @@ import type { JobOpening } from '@/types';
 export default async function VacaturesPage() {
   const session = await getSession();
   if (!session) redirect('/login');
-  if (session.role !== 'ADMIN') redirect('/dashboard');
+  if (!['ADMIN', 'MANAGER'].includes(session.role)) redirect('/dashboard');
 
   const { data } = await supabaseAdmin
     .from('JobOpening')

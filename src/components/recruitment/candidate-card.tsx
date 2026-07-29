@@ -12,7 +12,8 @@ interface CandidateCardProps {
 }
 
 const NEXT_STATUS: Partial<Record<CandidateStatus, CandidateStatus>> = {
-  NEW_LEAD: 'PRE_SCREENING',
+  NEW_LEAD: 'CONTACTED',
+  CONTACTED: 'PRE_SCREENING',
   PRE_SCREENING: 'INTERVIEW',
   SCREENING_DONE: 'INTERVIEW',
   INTERVIEW: 'RESERVE_BANK',
@@ -20,7 +21,8 @@ const NEXT_STATUS: Partial<Record<CandidateStatus, CandidateStatus>> = {
 };
 
 const NEXT_LABEL: Partial<Record<CandidateStatus, string>> = {
-  NEW_LEAD: 'Pre-screening →',
+  NEW_LEAD: 'Gecontacteerd →',
+  CONTACTED: 'Pre-screening →',
   PRE_SCREENING: 'Sollicitatiegesprek →',
   SCREENING_DONE: 'Sollicitatiegesprek →',
   INTERVIEW: 'Reserve bank →',

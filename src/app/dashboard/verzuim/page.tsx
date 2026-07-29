@@ -8,7 +8,7 @@ export default async function VerzuimPage() {
   const session = await getSession();
   if (!session) redirect('/login');
 
-  const isManager = session.role === 'ADMIN' || session.role === 'PLANNER';
+  const isManager = session.role === 'ADMIN' || session.role === 'MANAGER' || session.role === 'PLANNER';
 
   // Resolve EmployeeProfile.id for the current user
   const { data: profileRow } = await supabaseAdmin

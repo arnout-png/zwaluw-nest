@@ -6,7 +6,7 @@ import { ContractrichtlijnenClient } from './contractrichtlijnen-client';
 export default async function ContractrichtlijnenPage() {
   const session = await getSession();
   if (!session) redirect('/login');
-  if (session.role !== 'ADMIN') redirect('/dashboard');
+  if (!['ADMIN', 'MANAGER'].includes(session.role)) redirect('/dashboard');
 
   const { data } = await supabaseAdmin
     .from('ContractGuideline')

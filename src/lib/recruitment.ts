@@ -62,6 +62,7 @@ export async function notifyStageChange(
   assignedToId: string | null
 ): Promise<void> {
   const stageLabels: Record<string, string> = {
+    CONTACTED: 'Gecontacteerd',
     PRE_SCREENING: 'Pre-screening',
     SCREENING_DONE: 'Screening klaar',
     INTERVIEW: 'Sollicitatiegesprek',

@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import type { CallStatus } from '@/types';
+import { logAudit, getIp } from '@/lib/audit';
 
-const VALID_STATUSES: CallStatus[] = ['GEEN_GEHOOR', 'VOICEMAIL', 'BEREIKT', 'TERUGBELLEN'];
+const VALID_STATUSES: CallStatus[] = ['GEEN_GEHOOR', 'VOICEMAIL', 'BEREIKT', 'TERUGBELLEN', 'FOUTIEF_NUMMER'];
 
 export async function GET(
   _request: NextRequest,
@@ -43,7 +44,7 @@ export async function POST(
 ) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
-  if (session.role !== 'ADMIN' && session.role !== 'PLANNER') {
+  if (!['ADMIN', 'MANAGER', 'PLANNER'].includes(session.role)) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
   }
 
@@ -77,15 +78,18 @@ export async function POST(
     return NextResponse.json({ error: 'Kan bel poging niet opslaan.' }, { status: 500 });
   }
 
-  // If BEREIKT and candidate still NEW_LEAD → advance to PRE_SCREENING
-  if (status === 'BEREIKT') {
+  // Auto-advance logic based on call status
+  if (['BEREIKT', 'VOICEMAIL', 'GEEN_GEHOOR', 'TERUGBELLEN', 'FOUTIEF_NUMMER'].includes(status)) {
     const { data: candidate } = await supabaseAdmin
       .from('Candidate')
       .select('status')
       .eq('id', candidateId)
       .single();
 
-    if ((candidate as { status: string } | null)?.status === 'NEW_LEAD') {
+    const currentStatus = (candidate as { status: string } | null)?.status;
+
+    // BEREIKT = kandidaat daadwerkelijk gesproken → screening starten
+    if (status === 'BEREIKT' && (currentStatus === 'NEW_LEAD' || currentStatus === 'CONTACTED')) {
       await supabaseAdmin
         .from('Candidate')
         .update({
@@ -93,6 +97,56 @@ export async function POST(
           stageUpdatedAt: new Date().toISOString(),
         })
         .eq('id', candidateId);
+    }
+    // Andere belpogingen (geen gehoor, voicemail, terugbellen, foutief nr) → CONTACTED
+    else if (currentStatus === 'NEW_LEAD') {
+      await supabaseAdmin
+        .from('Candidate')
+        .update({
+          status: 'CONTACTED',
+          stageUpdatedAt: new Date().toISOString(),
+        })
+        .eq('id', candidateId);
+    }
+  }
+
+  logAudit({ userId: session.userId, action: 'CALL', entity: 'Candidate', entityId: candidateId, details: { callStatus: status, notes, callbackAt }, ipAddress: getIp(request) });
+
+  // Auto-notification for GEEN_GEHOOR / VOICEMAIL → remind assigned recruiter
+  if (status === 'GEEN_GEHOOR' || status === 'VOICEMAIL') {
+    const { data: cand } = await supabaseAdmin
+      .from('Candidate')
+      .select('name, assignedToId')
+      .eq('id', candidateId)
+      .single();
+
+    const candData = cand as { name: string; assignedToId?: string | null } | null;
+    const candName = candData?.name ?? 'Onbekend';
+    const message = status === 'GEEN_GEHOOR'
+      ? `Geen gehoor bij ${candName}. Probeer morgen opnieuw.`
+      : `Voicemail achtergelaten bij ${candName}. Volg op.`;
+
+    // Notify assigned recruiter, or all ADMIN/MANAGER if unassigned
+    let targetUserIds: string[] = [];
+    if (candData?.assignedToId && candData.assignedToId !== session.userId) {
+      targetUserIds = [candData.assignedToId];
+    } else if (!candData?.assignedToId) {
+      const { data: admins } = await supabaseAdmin.from('User').select('id').in('role', ['ADMIN', 'MANAGER']).eq('isActive', true);
+      targetUserIds = ((admins ?? []) as { id: string }[]).map(u => u.id).filter(id => id !== session.userId);
+    }
+
+    if (targetUserIds.length > 0) {
+      const notifications = targetUserIds.map(uid => ({
+        id: crypto.randomUUID(),
+        userId: uid,
+        type: 'SYSTEM' as const,
+        title: `Opnieuw bellen: ${candName}`,
+        message,
+        linkUrl: `/dashboard/werving/${candidateId}`,
+        isRead: false,
+        createdAt: new Date().toISOString(),
+      }));
+      try { await supabaseAdmin.from('Notification').insert(notifications); } catch { /* silent */ }
     }
   }
 

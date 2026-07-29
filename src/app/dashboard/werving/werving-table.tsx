@@ -9,11 +9,12 @@ interface WervingTableProps {
 }
 
 const ALL_STATUSES: CandidateStatus[] = [
-  'NEW_LEAD', 'PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED',
+  'NEW_LEAD', 'CONTACTED', 'PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED',
 ];
 
 const STATUS_LABELS: Record<CandidateStatus, string> = {
   NEW_LEAD: 'Nieuw',
+  CONTACTED: 'Gecontacteerd',
   PRE_SCREENING: 'Pre-screening',
   SCREENING_DONE: 'Screening klaar',
   INTERVIEW: 'Gesprek',
@@ -24,6 +25,7 @@ const STATUS_LABELS: Record<CandidateStatus, string> = {
 
 const STATUS_COLORS: Record<CandidateStatus, string> = {
   NEW_LEAD: 'bg-blue-500/15 text-blue-300 border-blue-500/20',
+  CONTACTED: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/20',
   PRE_SCREENING: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/20',
   SCREENING_DONE: 'bg-orange-500/15 text-orange-300 border-orange-500/20',
   INTERVIEW: 'bg-purple-500/15 text-purple-300 border-purple-500/20',
@@ -109,12 +111,18 @@ export function WervingTable({ candidates }: WervingTableProps) {
   const [sourceFilter, setSourceFilter] = useState('');
   const [assignedFilter, setAssignedFilter] = useState('');
   const [vacatureFilter, setVacatureFilter] = useState('');
+  const [callStatusFilter, setCallStatusFilter] = useState('');
   const [sortCol, setSortCol] = useState<SortCol>('createdAt');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(0);
   const [visibleCols, setVisibleCols] = useState<Set<SortCol>>(DEFAULT_COLS);
   const [colMenuOpen, setColMenuOpen] = useState(false);
   const colMenuRef = useRef<HTMLDivElement>(null);
+
+  // Bulk selection
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState('');
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   // Load column config from localStorage
   useEffect(() => {
@@ -201,9 +209,11 @@ export function WervingTable({ candidates }: WervingTableProps) {
       if (sourceFilter && c.leadSource !== sourceFilter) return false;
       if (assignedFilter && c.assignedTo?.id !== assignedFilter) return false;
       if (vacatureFilter && c.jobOpening?.id !== vacatureFilter) return false;
+      if (callStatusFilter === 'ONGEBELD' && c.lastCallLog) return false;
+      if (callStatusFilter && callStatusFilter !== 'ONGEBELD' && c.lastCallLog?.status !== callStatusFilter) return false;
       return true;
     });
-  }, [candidates, search, statusFilter, sourceFilter, assignedFilter, vacatureFilter]);
+  }, [candidates, search, statusFilter, sourceFilter, assignedFilter, vacatureFilter, callStatusFilter]);
 
   // Sort
   const sorted = useMemo(() => {
@@ -235,7 +245,7 @@ export function WervingTable({ candidates }: WervingTableProps) {
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
   const pageRows = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
-  const hasFilters = search || statusFilter.length > 0 || sourceFilter || assignedFilter || vacatureFilter;
+  const hasFilters = search || statusFilter.length > 0 || sourceFilter || assignedFilter || vacatureFilter || callStatusFilter;
 
   function clearFilters() {
     setSearch('');
@@ -243,7 +253,51 @@ export function WervingTable({ candidates }: WervingTableProps) {
     setSourceFilter('');
     setAssignedFilter('');
     setVacatureFilter('');
+    setCallStatusFilter('');
     setPage(0);
+  }
+
+  function toggleSelect(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selected.size === pageRows.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(pageRows.map(c => c.id)));
+    }
+  }
+
+  async function handleBulkAction() {
+    if (!bulkAction || selected.size === 0) return;
+    setBulkSaving(true);
+    const ids = [...selected];
+
+    try {
+      if (bulkAction === 'DELETE') {
+        await Promise.all(ids.map(id =>
+          fetch(`/api/candidates/${id}`, { method: 'DELETE' })
+        ));
+      } else {
+        // Status change
+        await Promise.all(ids.map(id =>
+          fetch(`/api/candidates/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: bulkAction }),
+          })
+        ));
+      }
+      setSelected(new Set());
+      setBulkAction('');
+      router.refresh();
+    } catch { /* silent */ }
+    setBulkSaving(false);
   }
 
   return (
@@ -305,6 +359,21 @@ export function WervingTable({ candidates }: WervingTableProps) {
             ))}
           </select>
         )}
+
+        {/* Call status filter */}
+        <select
+          value={callStatusFilter}
+          onChange={(e) => { setCallStatusFilter(e.target.value); setPage(0); }}
+          className="rounded-lg border border-[#363848] bg-[#1e2028] px-2.5 py-1.5 text-sm text-white focus:border-[#68b0a6] focus:outline-none"
+        >
+          <option value="">Alle belstatussen</option>
+          <option value="ONGEBELD">Ongebeld</option>
+          <option value="GEEN_GEHOOR">Geen gehoor</option>
+          <option value="VOICEMAIL">Voicemail</option>
+          <option value="TERUGBELLEN">Terugbellen</option>
+          <option value="BEREIKT">Contact</option>
+          <option value="FOUTIEF_NUMMER">Foutief nr</option>
+        </select>
 
         {/* Clear filters */}
         {hasFilters && (
@@ -377,6 +446,41 @@ export function WervingTable({ candidates }: WervingTableProps) {
         )}
       </div>
 
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-[#68b0a6]/30 bg-[#68b0a6]/5 px-4 py-2.5">
+          <span className="text-xs text-[#68b0a6] font-medium">{selected.size} geselecteerd</span>
+          <select
+            value={bulkAction}
+            onChange={(e) => setBulkAction(e.target.value)}
+            className="rounded-lg border border-[#363848] bg-[#1e2028] px-2.5 py-1 text-xs text-white focus:border-[#68b0a6] focus:outline-none"
+          >
+            <option value="">Kies actie…</option>
+            <optgroup label="Status wijzigen">
+              {ALL_STATUSES.map(s => (
+                <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+              ))}
+            </optgroup>
+            <optgroup label="Overig">
+              <option value="DELETE">Verwijderen (prullenbak)</option>
+            </optgroup>
+          </select>
+          <button
+            onClick={handleBulkAction}
+            disabled={!bulkAction || bulkSaving}
+            className="rounded-lg bg-[#68b0a6] px-3 py-1 text-xs font-medium text-[#14151b] hover:bg-[#5a9e94] disabled:opacity-40 transition-colors"
+          >
+            {bulkSaving ? 'Bezig…' : 'Uitvoeren'}
+          </button>
+          <button
+            onClick={() => { setSelected(new Set()); setBulkAction(''); }}
+            className="text-xs text-[#9ca3af] hover:text-white transition-colors"
+          >
+            Deselecteren
+          </button>
+        </div>
+      )}
+
       {/* Result count */}
       <p className="text-xs text-[#9ca3af]">
         {filtered.length} {filtered.length === 1 ? 'kandidaat' : 'kandidaten'}
@@ -389,6 +493,14 @@ export function WervingTable({ candidates }: WervingTableProps) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#363848] bg-[#1e2028]">
+                <th className="px-2 py-2.5 w-8">
+                  <input
+                    type="checkbox"
+                    checked={selected.size > 0 && selected.size === pageRows.length}
+                    onChange={toggleSelectAll}
+                    className="rounded border-[#363848] bg-[#252732] accent-[#68b0a6]"
+                  />
+                </th>
                 {COLUMN_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
                   <th
                     key={col.key}
@@ -415,8 +527,16 @@ export function WervingTable({ candidates }: WervingTableProps) {
                   <tr
                     key={c.id}
                     onClick={() => router.push(`/dashboard/werving/${c.id}`)}
-                    className={`border-b border-[#363848] cursor-pointer transition-colors hover:bg-[#252732] ${i % 2 === 0 ? 'bg-[#1e2028]' : 'bg-[#1a1c27]'}`}
+                    className={`border-b border-[#363848] cursor-pointer transition-colors hover:bg-[#252732] ${i % 2 === 0 ? 'bg-[#1e2028]' : 'bg-[#1a1c27]'} ${selected.has(c.id) ? 'bg-[#68b0a6]/5' : ''}`}
                   >
+                    <td className="px-2 py-2.5 w-8" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(c.id)}
+                        onChange={() => toggleSelect(c.id)}
+                        className="rounded border-[#363848] bg-[#252732] accent-[#68b0a6]"
+                      />
+                    </td>
                     {visibleCols.has('name') && (
                       <td className="px-3 py-2.5 font-medium text-white whitespace-nowrap">{c.name}</td>
                     )}

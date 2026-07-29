@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { readAllSheetLeads } from '@/lib/google-sheets';
+import { readAllSheetLeads, mapLeadStatusToCallStatus } from '@/lib/google-sheets';
 
 /**
  * GET /api/cron/sync-sheets
@@ -12,9 +12,17 @@ import { readAllSheetLeads } from '@/lib/google-sheets';
  * Secured via CRON_SECRET header.
  */
 export async function GET(request: NextRequest) {
+  // Allow access via CRON_SECRET header OR authenticated ADMIN session
   const secret = request.headers.get('authorization');
-  if (process.env.CRON_SECRET && secret !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const cronOk = !process.env.CRON_SECRET || secret === `Bearer ${process.env.CRON_SECRET}`;
+
+  if (!cronOk) {
+    // Fallback: check if logged-in admin
+    const { getSession } = await import('@/lib/auth');
+    const session = await getSession();
+    if (!session || session.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
   }
 
   try {
@@ -52,7 +60,38 @@ export async function GET(request: NextRequest) {
 
     const noteAuthorId = adminUser?.id ?? null;
 
+    // Fetch all active job openings for campaign → vacature mapping
+    const { data: jobOpenings } = await supabaseAdmin
+      .from('JobOpening')
+      .select('id, title, roleType')
+      .eq('isActive', true);
+
+    type JobRow = { id: string; title: string; roleType: string };
+    const jobs = (jobOpenings ?? []) as JobRow[];
+
+    // Map a campaign name to a job opening based on keywords
+    function matchJobOpening(campaignName: string, formName: string): string | null {
+      const haystack = `${campaignName} ${formName}`.toLowerCase();
+      // Order matters: more specific first
+      const rules: { keywords: string[]; roleType: string }[] = [
+        { keywords: ['monteur', 'installatie', 'installatiemonteur'], roleType: 'MONTEUR' },
+        { keywords: ['adviseur', 'sales', 'verkoop', 'buitendienst'], roleType: 'ADVISEUR' },
+        { keywords: ['binnendienst', 'technische binnendienst', 'tbm'], roleType: 'BINNENDIENST_TECHNISCH' },
+        { keywords: ['callcenter', 'call center', 'klantcontact'], roleType: 'BINNENDIENST_CALLCENTER' },
+        { keywords: ['magazijn', 'warehouse', 'logistiek'], roleType: 'WAREHOUSE' },
+        { keywords: ['backoffice', 'back office', 'administratie'], roleType: 'BACKOFFICE' },
+      ];
+      for (const rule of rules) {
+        if (rule.keywords.some(kw => haystack.includes(kw))) {
+          const job = jobs.find(j => j.roleType === rule.roleType);
+          if (job) return job.id;
+        }
+      }
+      return null;
+    }
+
     let importedCount = 0;
+    let assignedCount = 0;
 
     for (const lead of leads) {
       if (lead.facebookLeadId && existingFbIds.has(lead.facebookLeadId)) continue;
@@ -68,21 +107,24 @@ export async function GET(request: NextRequest) {
       const consentExpiry = new Date(consentDate);
       consentExpiry.setFullYear(consentExpiry.getFullYear() + 1);
 
+      // Match to job opening based on campaign/form name
+      const jobOpeningId = matchJobOpening(lead.campaignName ?? '', lead.formName ?? '');
+      if (jobOpeningId) assignedCount++;
+
       const { data: newCandidate, error: insertErr } = await supabaseAdmin
         .from('Candidate')
         .insert({
-          firstName,
-          lastName,
           name:             lead.fullName.trim(),
           email:            lead.email || `fb-${lead.facebookLeadId || Date.now()}@sheets.local`,
           phone:            lead.phone || null,
           status:           'NEW_LEAD',
-          source:           'Google Sheets (Facebook Leads)',
           leadSource:       'FACEBOOK',
-          leadCampaignId:   lead.facebookLeadId || null,
+          leadCampaignId:   lead.facebookLeadId ? `l:${lead.facebookLeadId}` : null,
+          jobOpeningId:     jobOpeningId,
           consentGiven:     true,
           consentDate:      consentDate.toISOString(),
           consentExpiresAt: consentExpiry.toISOString(),
+          stageUpdatedAt:   new Date().toISOString(),
         })
         .select('id')
         .single();
@@ -114,10 +156,52 @@ export async function GET(request: NextRequest) {
           content:     noteParts.join('\n'),
         });
       }
+
+      // Create CallLog entry if leadStatus indicates a call was made
+      const callStatus = mapLeadStatusToCallStatus(lead.leadStatus);
+      if (callStatus && noteAuthorId) {
+        await supabaseAdmin.from('CallLog').insert({
+          id:          crypto.randomUUID(),
+          candidateId: newCandidate.id,
+          userId:      noteAuthorId,
+          status:      callStatus,
+          notes:       lead.leadStatus.trim(),
+          callbackAt:  null,
+          createdAt:   new Date().toISOString(),
+        });
+      }
     }
 
-    console.log(`[cron/sync-sheets] ${importedCount} nieuwe kandidaten geïmporteerd`);
-    return NextResponse.json({ ok: true, imported: importedCount });
+    // Backfill: assign job openings to existing unassigned candidates based on their CandidateNote campaign info
+    let backfilledCount = 0;
+    const { data: unassigned } = await supabaseAdmin
+      .from('Candidate')
+      .select('id, name')
+      .is('jobOpeningId', null)
+      .eq('leadSource', 'FACEBOOK');
+
+    if (unassigned?.length) {
+      const candIds = (unassigned as { id: string }[]).map(c => c.id);
+      // Fetch notes that contain campaign info
+      const { data: notes } = await supabaseAdmin
+        .from('CandidateNote')
+        .select('candidateId, content')
+        .in('candidateId', candIds)
+        .like('content', '%Campagne:%');
+
+      for (const note of (notes ?? []) as { candidateId: string; content: string }[]) {
+        const match = note.content.match(/\*\*Campagne:\*\*\s*(.+?)(?:\n|$)/);
+        if (!match) continue;
+        const jobId = matchJobOpening(match[1], '');
+        if (jobId) {
+          await supabaseAdmin.from('Candidate').update({ jobOpeningId: jobId }).eq('id', note.candidateId);
+          backfilledCount++;
+        }
+      }
+    }
+
+    console.log(`[cron/sync-sheets] ${importedCount} nieuwe, ${assignedCount} gekoppeld, ${backfilledCount} backfilled`);
+    return NextResponse.json({ ok: true, imported: importedCount, assigned: assignedCount, backfilled: backfilledCount });
 
   } catch (err) {
     console.error('[cron/sync-sheets] Fout:', err);

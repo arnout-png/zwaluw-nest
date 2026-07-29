@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
-import { getDashboardStats, getRecentCandidates, getTodayCallbacks, getRecruitmentSummary } from '@/lib/data';
+import { getDashboardStats, getRecentCandidates, getTodayCallbacks, getUpcomingCallbacks, getPlannedInterviews, getRecruitmentSummary } from '@/lib/data';
 import { StatCard } from '@/components/dashboard/stat-card';
 import type { CandidateStatus } from '@/types';
 
@@ -14,6 +14,7 @@ function getGreeting() {
 
 const STATUS_LABELS: Record<CandidateStatus, string> = {
   NEW_LEAD: 'Nieuw',
+  CONTACTED: 'Gecontacteerd',
   PRE_SCREENING: 'Pre-screening',
   SCREENING_DONE: 'Screening klaar',
   INTERVIEW: 'Interview',
@@ -24,6 +25,7 @@ const STATUS_LABELS: Record<CandidateStatus, string> = {
 
 const STATUS_COLORS: Record<CandidateStatus, string> = {
   NEW_LEAD: 'bg-blue-500/10 text-blue-400',
+  CONTACTED: 'bg-cyan-500/10 text-cyan-400',
   PRE_SCREENING: 'bg-yellow-500/10 text-yellow-400',
   SCREENING_DONE: 'bg-yellow-500/10 text-yellow-300',
   INTERVIEW: 'bg-purple-500/10 text-purple-400',
@@ -54,14 +56,29 @@ export default async function DashboardPage() {
   const greeting = getGreeting();
   const isAdmin = session.role === 'ADMIN';
   const isPlanner = session.role === 'PLANNER';
-  const isRecruitmentUser = isAdmin || isPlanner;
+  const isManager = session.role === 'MANAGER';
+  const isRecruitmentUser = isAdmin || isPlanner || isManager;
 
-  const [stats, recentCandidates, todayCallbacks, recruitment] = await Promise.all([
+  const [stats, recentCandidates, todayCallbacks, upcomingCallbacks, plannedInterviews, recruitment] = await Promise.all([
     isRecruitmentUser ? getDashboardStats() : Promise.resolve(null),
     isRecruitmentUser ? getRecentCandidates(5) : Promise.resolve([]),
     isRecruitmentUser ? getTodayCallbacks() : Promise.resolve([]),
+    isRecruitmentUser ? getUpcomingCallbacks(7) : Promise.resolve([]),
+    isRecruitmentUser ? getPlannedInterviews() : Promise.resolve([]),
     isRecruitmentUser ? getRecruitmentSummary() : Promise.resolve(null),
   ]);
+
+  // Group upcoming callbacks by day (exclude today — those are in todayCallbacks)
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0);
+  const futureCallbacks = upcomingCallbacks.filter(cb => new Date(cb.callbackAt) >= tomorrow);
+  const callbacksByDay = new Map<string, typeof futureCallbacks>();
+  for (const cb of futureCallbacks) {
+    const day = new Date(cb.callbackAt).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'short' });
+    if (!callbacksByDay.has(day)) callbacksByDay.set(day, []);
+    callbacksByDay.get(day)!.push(cb);
+  }
 
   return (
     <div className="space-y-6 fade-in">
@@ -155,6 +172,7 @@ export default async function DashboardPage() {
           <div className="flex items-center gap-2 flex-wrap">
             {([
               { key: 'NEW_LEAD', label: 'Nieuw' },
+              { key: 'CONTACTED', label: 'Gecontacteerd' },
               { key: 'PRE_SCREENING', label: 'Pre-screening' },
               { key: 'SCREENING_DONE', label: 'Screening klaar' },
               { key: 'INTERVIEW', label: 'Interview' },
@@ -277,6 +295,88 @@ export default async function DashboardPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Upcoming callbacks + planned interviews */}
+      {isRecruitmentUser && (futureCallbacks.length > 0 || plannedInterviews.length > 0) && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {/* Komende belafspraken */}
+          {futureCallbacks.length > 0 && (
+            <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold text-white">Komende belafspraken</h2>
+                <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">
+                  {futureCallbacks.length} komende 7 dagen
+                </span>
+              </div>
+              <div className="space-y-3">
+                {[...callbacksByDay.entries()].map(([day, cbs]) => (
+                  <div key={day}>
+                    <p className="text-[10px] text-[#9ca3af] uppercase tracking-wide mb-1.5">{day}</p>
+                    <div className="space-y-1.5">
+                      {cbs.map((cb, i) => (
+                        <Link
+                          key={`${cb.candidateId}-${i}`}
+                          href={`/dashboard/werving/${cb.candidateId}`}
+                          className="flex items-center justify-between rounded-lg bg-[#1e2028] px-3 py-2 hover:bg-[#2a2d3a] transition-colors group"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-[#e8e9ed] truncate group-hover:text-[#68b0a6] transition-colors">
+                              {cb.candidateName}
+                            </div>
+                            {cb.phone && <div className="text-xs text-[#9ca3af] mt-0.5">{cb.phone}</div>}
+                          </div>
+                          <span className="text-xs text-blue-400 shrink-0 ml-2">
+                            {new Date(cb.callbackAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Geplande gesprekken */}
+          {plannedInterviews.length > 0 && (
+            <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold text-white">Geplande gesprekken</h2>
+                <span className="rounded-full bg-purple-500/10 px-2 py-0.5 text-xs font-medium text-purple-400">
+                  {plannedInterviews.length}
+                </span>
+              </div>
+              <div className="space-y-2">
+                {plannedInterviews.map((iv) => {
+                  const days = daysAgo(iv.stageUpdatedAt);
+                  return (
+                    <Link
+                      key={iv.id}
+                      href={`/dashboard/werving/${iv.id}`}
+                      className="flex items-center justify-between rounded-lg bg-[#1e2028] px-3 py-2.5 hover:bg-[#2a2d3a] transition-colors group"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-[#e8e9ed] truncate group-hover:text-[#68b0a6] transition-colors">
+                          {iv.name}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {iv.jobTitle && <span className="text-[10px] text-[#9ca3af]">{iv.jobTitle}</span>}
+                          {iv.assignedTo && <span className="text-[10px] text-[#6b7280]">· {iv.assignedTo}</span>}
+                        </div>
+                      </div>
+                      {days !== null && (
+                        <span className={`text-xs shrink-0 ml-2 ${days >= 7 ? 'text-[#f7a247]' : 'text-[#9ca3af]'}`}>
+                          {days}d in fase
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

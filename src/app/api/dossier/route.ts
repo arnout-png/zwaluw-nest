@@ -53,10 +53,7 @@ export async function POST(request: NextRequest) {
       description: content || description,
       date: new Date().toISOString(),
     })
-    .select(
-      `id, employeeProfileId, date, type, title, description, loggedById, createdAt,
-       loggedBy:User!DossierEntry_loggedById_fkey (id, name, role)`
-    )
+    .select('id, employeeProfileId, date, type, title, description, loggedById, createdAt')
     .single();
 
   if (error) {
@@ -64,5 +61,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Kan dossierentry niet aanmaken.' }, { status: 500 });
   }
 
-  return NextResponse.json({ data }, { status: 201 });
+  const enriched = { ...data, loggedBy: { id: session.userId, name: session.name, role: session.role } };
+  return NextResponse.json({ data: enriched }, { status: 201 });
 }

@@ -16,7 +16,8 @@ datasource db {
 // ─────────────────────────────────────────────
 
 enum Role {
-  ADMIN       // Directie — full access
+  ADMIN       // Directie — full access, user/role management
+  MANAGER     // Manager — recruitment access, no user management or settings
   PLANNER     // Scheduling — sees master agenda + verzuim, no HR dossiers
   ADVISEUR    // Sales — own agenda, conversion metrics, leave requests
   MONTEUR     // Mechanic — mobile view, assigned jobs/vehicle/tools
@@ -72,6 +73,7 @@ model User {
 
 enum CandidateStatus {
   NEW_LEAD        // Ingested from Facebook Ads webhook
+  CONTACTED       // Contact attempted but no screening yet
   PRE_SCREENING   // Form sent, awaiting response
   SCREENING_DONE  // Form completed, awaiting review
   INTERVIEW       // Approved for interview
@@ -82,10 +84,11 @@ enum CandidateStatus {
 }
 
 enum CallStatus {
-  GEEN_GEHOOR   // Niet opgenomen
-  VOICEMAIL     // Voicemail ingesproken
-  BEREIKT       // Kandidaat opgenomen — gesprek gevoerd
-  TERUGBELLEN   // Afgesproken terug te bellen
+  GEEN_GEHOOR      // Niet opgenomen
+  VOICEMAIL        // Voicemail ingesproken
+  BEREIKT          // Kandidaat opgenomen — gesprek gevoerd
+  TERUGBELLEN      // Afgesproken terug te bellen
+  FOUTIEF_NUMMER   // Telefoonnummer klopt niet
 }
 
 model CallLog {
@@ -133,6 +136,13 @@ model Candidate {
 
   // Stage tracking
   stageUpdatedAt    DateTime?  // Stamped whenever status changes
+
+  // Phone correction flow
+  phoneCorrectToken     String?
+  phoneCorrectExpiresAt DateTime?
+
+  // Soft delete (trash)
+  deletedAt         DateTime?
 
   // Assignment
   assignedToId      String?

@@ -17,22 +17,44 @@ interface Props {
   onClose: () => void;
 }
 
-async function getCroppedBlob(imageSrc: string, cropArea: Area, mimeType: string): Promise<Blob> {
+// Vacature-afbeeldingen worden nooit breder dan dit getoond (hero + kaart), dus
+// schalen we de crop hierop terug. Een full-res crop van een telefoon-/DSLR-foto
+// kan >4,5 MB worden; dat wordt door de hosting (Vercel serverless request-limit)
+// geweigerd nog vóór de API-route draait → een niet-JSON 413 waardoor res.json()
+// klapte en de gebruiker enkel "Upload mislukt. Probeer opnieuw." zag.
+const MAX_OUTPUT_WIDTH = 1920;
+const OUTPUT_MIME = 'image/jpeg';
+const OUTPUT_QUALITY = 0.85;
+
+async function getCroppedBlob(imageSrc: string, cropArea: Area): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.crossOrigin = 'anonymous';
     image.onload = () => {
+      // Schaal omlaag (nooit omhoog) zodat de output max MAX_OUTPUT_WIDTH breed is.
+      const scale = Math.min(1, MAX_OUTPUT_WIDTH / cropArea.width);
+      const outW = Math.max(1, Math.round(cropArea.width * scale));
+      const outH = Math.max(1, Math.round(cropArea.height * scale));
       const canvas = document.createElement('canvas');
-      canvas.width = cropArea.width;
-      canvas.height = cropArea.height;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(image, cropArea.x, cropArea.y, cropArea.width, cropArea.height, 0, 0, cropArea.width, cropArea.height);
-      canvas.toBlob((blob) => {
-        if (blob) resolve(blob);
-        else reject(new Error('Canvas toBlob failed'));
-      }, mimeType, 0.92);
+      canvas.width = outW;
+      canvas.height = outH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('Canvas-context niet beschikbaar')); return; }
+      // Witte ondergrond voorkomt zwarte vlakken als een PNG met transparantie
+      // naar JPEG wordt geëxporteerd.
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, outW, outH);
+      ctx.drawImage(
+        image,
+        cropArea.x, cropArea.y, cropArea.width, cropArea.height,
+        0, 0, outW, outH,
+      );
+      canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error('Canvas toBlob gaf geen resultaat'))),
+        OUTPUT_MIME,
+        OUTPUT_QUALITY,
+      );
     };
-    image.onerror = reject;
+    image.onerror = () => reject(new Error('Afbeelding kon niet worden geladen'));
     image.src = imageSrc;
   });
 }
@@ -42,7 +64,6 @@ export function ImagePickerModal({ currentUrl, onSelect, onClose }: Props) {
 
   // Upload + crop state
   const [rawDataUrl, setRawDataUrl] = useState<string | null>(null);
-  const [rawMime, setRawMime] = useState('image/jpeg');
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedArea, setCroppedArea] = useState<Area | null>(null);
@@ -62,7 +83,6 @@ export function ImagePickerModal({ currentUrl, onSelect, onClose }: Props) {
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setRawMime(file.type || 'image/jpeg');
     setUploadError('');
     const reader = new FileReader();
     reader.onload = () => setRawDataUrl(reader.result as string);
@@ -75,16 +95,28 @@ export function ImagePickerModal({ currentUrl, onSelect, onClose }: Props) {
     setUploading(true);
     setUploadError('');
     try {
-      const blob = await getCroppedBlob(rawDataUrl, croppedArea, rawMime);
-      const ext = rawMime.split('/')[1] ?? 'jpg';
-      const file = new File([blob], `crop.${ext}`, { type: rawMime });
+      const blob = await getCroppedBlob(rawDataUrl, croppedArea);
+      const file = new File([blob], 'crop.jpg', { type: OUTPUT_MIME });
       const formData = new FormData();
       formData.append('file', file);
       const res = await fetch('/api/admin/upload', { method: 'POST', body: formData });
-      const json = await res.json();
-      if (!res.ok) { setUploadError(json.error ?? 'Upload mislukt.'); return; }
+      // Bij een host-fout (bv. 413 request too large) is de body geen JSON —
+      // defensief parsen zodat we niet in de generieke catch belanden.
+      let json: { url?: string; error?: string } = {};
+      try { json = await res.json(); } catch { /* niet-JSON respons */ }
+      if (!res.ok) {
+        setUploadError(
+          json.error ??
+            (res.status === 413
+              ? 'Afbeelding te groot om te uploaden. Kies een kleinere foto.'
+              : `Upload mislukt (${res.status}). Probeer opnieuw.`),
+        );
+        return;
+      }
+      if (!json.url) { setUploadError('Upload mislukt: geen URL ontvangen.'); return; }
       onSelect(json.url);
-    } catch {
+    } catch (err) {
+      console.error('[image-picker] upload mislukt:', err);
       setUploadError('Upload mislukt. Probeer opnieuw.');
     } finally {
       setUploading(false);

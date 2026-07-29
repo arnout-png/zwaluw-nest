@@ -40,6 +40,7 @@ export function parsePermissions(raw: string | null | undefined): UserPermission
 
 export type Role =
   | 'ADMIN'
+  | 'MANAGER'
   | 'PLANNER'
   | 'ADVISEUR'
   | 'MONTEUR'
@@ -55,6 +56,7 @@ export type ContractStatus =
 
 export type CandidateStatus =
   | 'NEW_LEAD'
+  | 'CONTACTED'
   | 'PRE_SCREENING'
   | 'SCREENING_DONE'
   | 'INTERVIEW'
@@ -111,7 +113,7 @@ export type LeadSource =
   | 'GOOGLE'
   | 'OTHER';
 
-export type CallStatus = 'GEEN_GEHOOR' | 'VOICEMAIL' | 'BEREIKT' | 'TERUGBELLEN';
+export type CallStatus = 'GEEN_GEHOOR' | 'VOICEMAIL' | 'BEREIKT' | 'TERUGBELLEN' | 'FOUTIEF_NUMMER';
 
 export interface CallLog {
   id: string;

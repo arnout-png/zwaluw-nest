@@ -4,20 +4,29 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 export async function GET() {
   const session = await getSession();
-  if (!session || session.role !== 'ADMIN') {
+  if (!session || !['ADMIN', 'MANAGER'].includes(session.role)) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
   }
 
   const { data } = await supabaseAdmin
     .from('RoleAssignment')
-    .select('roleType, userId, user:User!RoleAssignment_userId_fkey(id, name)');
+    .select('roleType, userId');
 
-  return NextResponse.json({ data: data ?? [] });
+  const rows = (data ?? []) as { roleType: string; userId: string }[];
+  const userIds = [...new Set(rows.map(r => r.userId).filter(Boolean))];
+  let usersMap: Record<string, { id: string; name: string }> = {};
+  if (userIds.length) {
+    const { data: users } = await supabaseAdmin.from('User').select('id, name').in('id', userIds);
+    usersMap = Object.fromEntries(((users ?? []) as { id: string; name: string }[]).map(u => [u.id, u]));
+  }
+
+  const enriched = rows.map(r => ({ ...r, user: r.userId ? usersMap[r.userId] ?? null : null }));
+  return NextResponse.json({ data: enriched });
 }
 
 export async function PUT(req: NextRequest) {
   const session = await getSession();
-  if (!session || session.role !== 'ADMIN') {
+  if (!session || !['ADMIN', 'MANAGER'].includes(session.role)) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
   }
 

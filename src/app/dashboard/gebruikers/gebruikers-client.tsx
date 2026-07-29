@@ -6,10 +6,11 @@ import type { UserWithPhone } from './page';
 import type { Role, UserPermissions } from '@/types';
 import { parsePermissions, defaultPermissions } from '@/types';
 
-const ROLES: Role[] = ['ADMIN', 'PLANNER', 'ADVISEUR', 'MONTEUR', 'CALLCENTER', 'BACKOFFICE', 'WAREHOUSE'];
+const ROLES: Role[] = ['ADMIN', 'MANAGER', 'PLANNER', 'ADVISEUR', 'MONTEUR', 'CALLCENTER', 'BACKOFFICE', 'WAREHOUSE'];
 
 const ROLE_LABELS: Record<Role, string> = {
   ADMIN: 'Admin',
+  MANAGER: 'Manager',
   PLANNER: 'Planner',
   ADVISEUR: 'Adviseur',
   MONTEUR: 'Monteur',
@@ -20,6 +21,7 @@ const ROLE_LABELS: Record<Role, string> = {
 
 const ROLE_COLORS: Record<Role, string> = {
   ADMIN: 'bg-purple-500/10 text-purple-400',
+  MANAGER: 'bg-emerald-500/10 text-emerald-400',
   PLANNER: 'bg-blue-500/10 text-blue-400',
   ADVISEUR: 'bg-[#68b0a6]/10 text-[#68b0a6]',
   MONTEUR: 'bg-[#f7a247]/10 text-[#f7a247]',

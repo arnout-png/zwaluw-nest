@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { supabaseAdmin } from "@/lib/supabase";
 import { createSession } from "@/lib/auth";
+import { logAudit, getIp } from "@/lib/audit";
 
 export async function POST(request: NextRequest) {
   try {
@@ -55,13 +56,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Audit log
-    await supabaseAdmin.from("AuditLog").insert({
-      userId: user.id,
-      action: "LOGIN",
-      entity: "User",
-      entityId: user.id,
-      ipAddress: request.headers.get("x-forwarded-for") || "unknown",
-    });
+    logAudit({ userId: user.id, action: "LOGIN", entity: "User", entityId: user.id, ipAddress: getIp(request) });
 
     return NextResponse.json({
       success: true,

@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
   }
 
-  if (session.role !== 'ADMIN' && session.role !== 'PLANNER') {
+  if (!['ADMIN', 'MANAGER', 'PLANNER'].includes(session.role)) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
   }
 

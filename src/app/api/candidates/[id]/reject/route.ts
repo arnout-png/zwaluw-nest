@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
-import { sendRejectionEmail } from '@/lib/email';
+import { sendRejectionEmail, isEmailConfigured } from '@/lib/email';
+import { logAudit, getIp } from '@/lib/audit';
 
 export async function POST(
   request: NextRequest,
@@ -11,7 +12,7 @@ export async function POST(
   if (!session) {
     return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
   }
-  if (session.role !== 'ADMIN' && session.role !== 'PLANNER') {
+  if (!['ADMIN', 'MANAGER', 'PLANNER'].includes(session.role)) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
   }
 
@@ -41,7 +42,7 @@ export async function POST(
 
   let rejectionEmailSent = false;
 
-  if (body.sendEmail && candidate.email && process.env.RESEND_API_KEY) {
+  if (body.sendEmail && candidate.email && isEmailConfigured()) {
     try {
       await sendRejectionEmail({
         to: candidate.email,
@@ -65,6 +66,8 @@ export async function POST(
   if (error) {
     return NextResponse.json({ error: 'Kan kandidaat niet bijwerken.' }, { status: 500 });
   }
+
+  logAudit({ userId: session.userId, action: 'STATUS_CHANGE', entity: 'Candidate', entityId: id, details: { to: 'REJECTED', reason: body.reason, emailSent: rejectionEmailSent }, ipAddress: getIp(request) });
 
   return NextResponse.json({ data, emailSent: rejectionEmailSent });
 }

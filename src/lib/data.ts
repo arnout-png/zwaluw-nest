@@ -370,7 +370,28 @@ export async function getAppointments(
     console.error('getAppointments error:', error.message, error.code);
     return [];
   }
-  return (data as unknown as Appointment[]) ?? [];
+
+  const rows = (data ?? []) as Record<string, unknown>[];
+
+  // Enrich with employeeProfile + user names
+  const epIds = [...new Set(rows.map(r => r.employeeProfileId as string).filter(Boolean))];
+  let epMap: Record<string, { id: string; userId: string; user: { id: string; name: string; role: string } }> = {};
+  if (epIds.length) {
+    const { data: eps } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', epIds);
+    if (eps?.length) {
+      const userIds = (eps as { userId: string }[]).map(e => e.userId);
+      const { data: users } = await supabaseAdmin.from('User').select('id, name, role').in('id', userIds);
+      const usersMap = Object.fromEntries(((users ?? []) as { id: string; name: string; role: string }[]).map(u => [u.id, u]));
+      for (const ep of eps as { id: string; userId: string }[]) {
+        epMap[ep.id] = { ...ep, user: usersMap[ep.userId] ?? { id: ep.userId, name: 'Onbekend', role: '' } };
+      }
+    }
+  }
+
+  return rows.map(r => ({
+    ...r,
+    employeeProfile: r.employeeProfileId ? epMap[r.employeeProfileId as string] ?? null : null,
+  })) as unknown as Appointment[];
 }
 
 // ─── Contracts ────────────────────────────────────────────────────────────────
@@ -507,6 +528,77 @@ export async function getTodayCallbacks(): Promise<{ candidateId: string; candid
     candidateName: candidateMap[log.candidateId]?.name ?? 'Onbekend',
     phone: candidateMap[log.candidateId]?.phone ?? null,
     callbackAt: log.callbackAt,
+  }));
+}
+
+export async function getUpcomingCallbacks(days = 7): Promise<{ candidateId: string; candidateName: string; phone?: string | null; callbackAt: string; notes?: string | null }[]> {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  const futureEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days + 1).toISOString();
+
+  const { data, error } = await supabaseAdmin
+    .from('CallLog')
+    .select('id, candidateId, callbackAt, notes, status')
+    .eq('status', 'TERUGBELLEN')
+    .gte('callbackAt', todayStart)
+    .lt('callbackAt', futureEnd)
+    .order('callbackAt', { ascending: true });
+
+  if (error || !data?.length) return [];
+
+  const candidateIds = [...new Set((data as { candidateId: string }[]).map(c => c.candidateId))];
+  const { data: candidates } = await supabaseAdmin
+    .from('Candidate')
+    .select('id, name, phone')
+    .in('id', candidateIds);
+
+  const candidateMap = Object.fromEntries(
+    ((candidates ?? []) as { id: string; name: string; phone?: string | null }[]).map(c => [c.id, c])
+  );
+
+  return (data as { candidateId: string; callbackAt: string; notes?: string | null }[]).map(log => ({
+    candidateId: log.candidateId,
+    candidateName: candidateMap[log.candidateId]?.name ?? 'Onbekend',
+    phone: candidateMap[log.candidateId]?.phone ?? null,
+    callbackAt: log.callbackAt,
+    notes: log.notes,
+  }));
+}
+
+export async function getPlannedInterviews(): Promise<{ id: string; name: string; assignedTo?: string | null; jobTitle?: string | null; stageUpdatedAt: string }[]> {
+  const { data, error } = await supabaseAdmin
+    .from('Candidate')
+    .select('id, name, assignedToId, jobOpeningId, stageUpdatedAt')
+    .eq('status', 'INTERVIEW')
+    .is('deletedAt', null)
+    .order('stageUpdatedAt', { ascending: true });
+
+  if (error || !data?.length) return [];
+
+  const rows = data as { id: string; name: string; assignedToId?: string | null; jobOpeningId?: string | null; stageUpdatedAt: string }[];
+
+  // Enrich with assignee names + job titles
+  const assignedIds = [...new Set(rows.map(r => r.assignedToId).filter(Boolean))] as string[];
+  const jobIds = [...new Set(rows.map(r => r.jobOpeningId).filter(Boolean))] as string[];
+
+  let usersMap: Record<string, string> = {};
+  if (assignedIds.length) {
+    const { data: users } = await supabaseAdmin.from('User').select('id, name').in('id', assignedIds);
+    usersMap = Object.fromEntries(((users ?? []) as { id: string; name: string }[]).map(u => [u.id, u.name]));
+  }
+
+  let jobMap: Record<string, string> = {};
+  if (jobIds.length) {
+    const { data: jobs } = await supabaseAdmin.from('JobOpening').select('id, title').in('id', jobIds);
+    jobMap = Object.fromEntries(((jobs ?? []) as { id: string; title: string }[]).map(j => [j.id, j.title]));
+  }
+
+  return rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    assignedTo: r.assignedToId ? usersMap[r.assignedToId] ?? null : null,
+    jobTitle: r.jobOpeningId ? jobMap[r.jobOpeningId] ?? null : null,
+    stageUpdatedAt: r.stageUpdatedAt,
   }));
 }
 
@@ -730,7 +822,7 @@ export interface RecruitmentSummary {
 }
 
 export async function getRecruitmentSummary(): Promise<RecruitmentSummary> {
-  const activeStatuses = ['NEW_LEAD', 'PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK'];
+  const activeStatuses = ['NEW_LEAD', 'CONTACTED', 'PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK'];
 
   const { data: candidates } = await supabaseAdmin
     .from('Candidate')
@@ -749,6 +841,7 @@ export async function getRecruitmentSummary(): Promise<RecruitmentSummary> {
   // Stale: fetch thresholds from AppSetting
   const stageKeys = [
     'STAGE_ALERT_NEW_LEAD',
+    'STAGE_ALERT_CONTACTED',
     'STAGE_ALERT_PRE_SCREENING',
     'STAGE_ALERT_SCREENING_DONE',
     'STAGE_ALERT_INTERVIEW',
@@ -756,6 +849,7 @@ export async function getRecruitmentSummary(): Promise<RecruitmentSummary> {
   ];
   const stageStatusMap: Record<string, string> = {
     STAGE_ALERT_NEW_LEAD: 'NEW_LEAD',
+    STAGE_ALERT_CONTACTED: 'CONTACTED',
     STAGE_ALERT_PRE_SCREENING: 'PRE_SCREENING',
     STAGE_ALERT_SCREENING_DONE: 'SCREENING_DONE',
     STAGE_ALERT_INTERVIEW: 'INTERVIEW',
@@ -763,6 +857,7 @@ export async function getRecruitmentSummary(): Promise<RecruitmentSummary> {
   };
   const defaults: Record<string, number> = {
     STAGE_ALERT_NEW_LEAD: 3,
+    STAGE_ALERT_CONTACTED: 5,
     STAGE_ALERT_PRE_SCREENING: 5,
     STAGE_ALERT_SCREENING_DONE: 3,
     STAGE_ALERT_INTERVIEW: 7,

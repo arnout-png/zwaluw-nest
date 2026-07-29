@@ -9,6 +9,7 @@ const STATUS_LABELS: Record<CallStatus, string> = {
   VOICEMAIL: 'Voicemail',
   BEREIKT: 'Contact',
   TERUGBELLEN: 'Terugbellen',
+  FOUTIEF_NUMMER: 'Foutief nummer',
 };
 
 const STATUS_COLORS: Record<CallStatus, string> = {
@@ -16,20 +17,27 @@ const STATUS_COLORS: Record<CallStatus, string> = {
   VOICEMAIL: 'bg-[#f7a247]/10 text-[#f7a247]',
   BEREIKT: 'bg-[#68b0a6]/10 text-[#68b0a6]',
   TERUGBELLEN: 'bg-blue-500/10 text-blue-400',
+  FOUTIEF_NUMMER: 'bg-red-500/10 text-red-400',
 };
 
 interface Props {
   candidateId: string;
   candidateStatus: CandidateStatus;
   candidatePhone: string | null;
+  candidateEmail?: string | null;
   initialCallLogs: CallLog[];
 }
 
 type ActiveForm = 'VOICEMAIL' | 'TERUGBELLEN' | null;
 
+interface CandidateInfo {
+  email?: string | null;
+}
+
 export function CandidateCallLogClient({
   candidateId,
   candidateStatus,
+  candidateEmail,
   initialCallLogs,
 }: Props) {
   const router = useRouter();
@@ -47,6 +55,10 @@ export function CandidateCallLogClient({
   useEffect(() => {
     setCallLogs(initialCallLogs);
   }, [initialCallLogs]);
+
+  const [showCorrectPrompt, setShowCorrectPrompt] = useState(false);
+  const [sendingCorrect, setSendingCorrect] = useState(false);
+  const [correctSent, setCorrectSent] = useState(false);
 
   const lastLog = callLogs[0] ?? null;
   const isResolved = ['INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED'].includes(candidateStatus);
@@ -104,6 +116,25 @@ export function CandidateCallLogClient({
     logCall('TERUGBELLEN', { notes: noteText.trim() || undefined, callbackAt });
   }
 
+  async function handleFoutiefNummer() {
+    await logCall('FOUTIEF_NUMMER');
+    if (candidateEmail) {
+      setShowCorrectPrompt(true);
+    }
+  }
+
+  async function sendCorrectEmail() {
+    setSendingCorrect(true);
+    try {
+      const res = await fetch(`/api/candidates/${candidateId}/phone-correct`, { method: 'POST' });
+      if (res.ok) {
+        setCorrectSent(true);
+        setShowCorrectPrompt(false);
+      }
+    } catch { /* silent */ }
+    setSendingCorrect(false);
+  }
+
   // Today as min date for callback
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -127,7 +158,7 @@ export function CandidateCallLogClient({
         <div className="space-y-3">
           <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">Log bel poging</p>
 
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             {/* Geen gehoor — direct log */}
             <button
               onClick={() => logCall('GEEN_GEHOOR')}
@@ -166,6 +197,16 @@ export function CandidateCallLogClient({
               Terugbellen
             </button>
 
+            {/* Foutief nummer — log + prompt correctie-email */}
+            <button
+              onClick={handleFoutiefNummer}
+              disabled={saving !== null}
+              className="rounded-lg border border-red-500/40 px-3 py-2.5 text-xs font-medium text-red-400 hover:bg-red-500/10 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+            >
+              <span>&#x274C;</span>
+              {saving === 'FOUTIEF_NUMMER' ? 'Opslaan…' : 'Foutief nr'}
+            </button>
+
             {/* Contact (BEREIKT) — direct log + refresh */}
             <button
               onClick={() => logCall('BEREIKT')}
@@ -176,6 +217,38 @@ export function CandidateCallLogClient({
               {saving === 'BEREIKT' ? 'Opslaan…' : 'Contact'}
             </button>
           </div>
+
+          {/* Correctie-email prompt */}
+          {showCorrectPrompt && (
+            <div className="rounded-lg border border-red-500/30 bg-[#1e2028] p-4 space-y-3">
+              <p className="text-xs font-medium text-red-400">Correctie-email versturen?</p>
+              <p className="text-xs text-[#9ca3af]">
+                Wil je een e-mail sturen naar de kandidaat om zijn/haar telefoonnummer te corrigeren?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={sendCorrectEmail}
+                  disabled={sendingCorrect}
+                  className="rounded-lg bg-red-500 px-4 py-2 text-xs font-semibold text-white hover:bg-red-400 disabled:opacity-50 transition-colors"
+                >
+                  {sendingCorrect ? 'Verzenden…' : 'Ja, verstuur e-mail'}
+                </button>
+                <button
+                  onClick={() => setShowCorrectPrompt(false)}
+                  className="rounded-lg border border-[#363848] px-4 py-2 text-xs font-medium text-[#9ca3af] hover:text-white transition-colors"
+                >
+                  Nee
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Correctie verstuurd bevestiging */}
+          {correctSent && (
+            <div className="rounded-lg border border-[#68b0a6]/30 bg-[#68b0a6]/5 p-3">
+              <p className="text-xs text-[#68b0a6]">&#x2705; Correctie-email verstuurd. Je ontvangt een melding zodra de kandidaat reageert.</p>
+            </div>
+          )}
 
           {/* Voicemail formulier */}
           {activeForm === 'VOICEMAIL' && (
@@ -286,6 +359,7 @@ export function CandidateCallLogClient({
                   {log.status === 'VOICEMAIL' && '📬'}
                   {log.status === 'BEREIKT' && '✅'}
                   {log.status === 'TERUGBELLEN' && '🔁'}
+                  {log.status === 'FOUTIEF_NUMMER' && '\u274C'}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">

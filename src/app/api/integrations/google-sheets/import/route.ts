@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
-import { readAllSheetLeads } from '@/lib/google-sheets';
+import { readAllSheetLeads, mapLeadStatusToCallStatus } from '@/lib/google-sheets';
 
 /**
  * GET  /api/integrations/google-sheets/import
@@ -16,7 +16,7 @@ import { readAllSheetLeads } from '@/lib/google-sheets';
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
-  if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
+  if (!['ADMIN', 'MANAGER'].includes(session.role)) return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
 
   try {
     const leads = await readAllSheetLeads();
@@ -33,7 +33,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
-  if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
+  if (!['ADMIN', 'MANAGER'].includes(session.role)) return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
 
   const body = await request.json().catch(() => ({}));
   const dryRun = body.dryRun === true;
@@ -158,6 +158,20 @@ export async function POST(request: NextRequest) {
           candidateId: newCandidate.id,
           authorId:    noteAuthorId,
           content:     noteParts.join('\n'),
+        });
+      }
+
+      // Create CallLog entry if leadStatus indicates a call was made
+      const callStatus = mapLeadStatusToCallStatus(lead.leadStatus);
+      if (callStatus && noteAuthorId) {
+        await supabaseAdmin.from('CallLog').insert({
+          id:          crypto.randomUUID(),
+          candidateId: newCandidate.id,
+          userId:      noteAuthorId,
+          status:      callStatus,
+          notes:       lead.leadStatus.trim(),
+          callbackAt:  null,
+          createdAt:   new Date().toISOString(),
         });
       }
     }

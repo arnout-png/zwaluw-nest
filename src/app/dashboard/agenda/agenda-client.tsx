@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { WeekCalendar } from '@/components/agenda/week-calendar';
 import type { Appointment, EmployeeWithProfile } from '@/types';
 
@@ -22,11 +23,13 @@ const APPT_TYPES = ['Adviesgesprek', 'Montage', 'Inspectie', 'Nazorg', 'Overig']
 const MONTH_NAMES = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
 
 export function AgendaClient({ appointments: initialAppts, employees }: AgendaClientProps) {
+  const router = useRouter();
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
   const [appointments, setAppointments] = useState<Appointment[]>(initialAppts);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [employeeFilter, setEmployeeFilter] = useState('');
   const [form, setForm] = useState({
     employeeProfileId: '',
     type: 'Adviesgesprek',
@@ -63,8 +66,11 @@ export function AgendaClient({ appointments: initialAppts, employees }: AgendaCl
   const weekStr = weekStart.toISOString().split('T')[0];
   const weekEndStr = weekEnd.toISOString().split('T')[0];
   const weekAppts = appointments.filter((a) => {
-    const d = a.date ?? (a.startTime ? new Date(a.startTime).toISOString().split('T')[0] : '');
-    return d >= weekStr && d <= weekEndStr;
+    const raw = a.date ?? (a.startTime ? new Date(a.startTime).toISOString() : '');
+    const d = raw.split('T')[0]; // Normalize "2026-03-30T00:00:00" → "2026-03-30"
+    if (d < weekStr || d > weekEndStr) return false;
+    if (employeeFilter && a.employeeProfileId !== employeeFilter) return false;
+    return true;
   });
 
   async function handleCreateAppt(e: React.FormEvent) {
@@ -121,7 +127,13 @@ export function AgendaClient({ appointments: initialAppts, employees }: AgendaCl
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-semibold text-white">Agenda</h1>
-          <p className="mt-1 text-sm text-[#9ca3af]">{weekAppts.length} afspraken deze week</p>
+          <p className="mt-1 text-sm text-[#9ca3af]">
+            {weekAppts.length} afspraak{weekAppts.length !== 1 ? 'en' : ''} deze week
+            {employeeFilter && (() => {
+              const emp = employees.find(e => e.employeeProfile?.id === employeeFilter);
+              return emp ? ` · ${emp.name}` : '';
+            })()}
+          </p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -242,6 +254,45 @@ export function AgendaClient({ appointments: initialAppts, employees }: AgendaCl
         </div>
       )}
 
+      {/* Employee filter */}
+      {employees.length > 1 && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setEmployeeFilter('')}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              !employeeFilter
+                ? 'bg-[#68b0a6] text-white'
+                : 'border border-[#363848] text-[#9ca3af] hover:text-white hover:border-[#68b0a6]'
+            }`}
+          >
+            Iedereen
+          </button>
+          {employees.map((emp) => {
+            // Use employeeProfile id if available, fallback to user id for filtering
+            const filterId = emp.employeeProfile?.id ?? `user:${emp.id}`;
+            const count = appointments.filter(a => {
+              const d = (a.date ?? '').split('T')[0];
+              if (d < weekStr || d > weekEndStr) return false;
+              if (emp.employeeProfile?.id) return a.employeeProfileId === emp.employeeProfile.id;
+              return false;
+            }).length;
+            return (
+              <button
+                key={emp.id}
+                onClick={() => setEmployeeFilter(filterId === employeeFilter ? '' : filterId)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  employeeFilter === filterId
+                    ? 'bg-[#68b0a6] text-white'
+                    : 'border border-[#363848] text-[#9ca3af] hover:text-white hover:border-[#68b0a6]'
+                }`}
+              >
+                {emp.name.split(' ')[0]} {count > 0 && <span className="opacity-70 ml-0.5">{count}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Week navigation */}
       <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
         <div className="flex items-center justify-between mb-4">
@@ -265,7 +316,26 @@ export function AgendaClient({ appointments: initialAppts, employees }: AgendaCl
             Vandaag
           </button>
         </div>
-        <WeekCalendar weekStart={weekStart} appointments={weekAppts} />
+        <WeekCalendar
+          weekStart={weekStart}
+          appointments={weekAppts}
+          onAppointmentClick={(appt) => {
+            // Sollicitatiegesprekken linken naar kandidaatpagina
+            if (appt.title?.startsWith('Sollicitatiegesprek:')) {
+              const candidateName = appt.title.replace('Sollicitatiegesprek: ', '');
+              // Search for candidate by name
+              fetch(`/api/search?q=${encodeURIComponent(candidateName)}`)
+                .then(r => r.json())
+                .then(json => {
+                  const match = (json.data ?? []).find((c: { name: string }) =>
+                    c.name.toLowerCase() === candidateName.toLowerCase()
+                  );
+                  if (match) router.push(`/dashboard/werving/${match.id}`);
+                })
+                .catch(() => {});
+            }
+          }}
+        />
       </div>
     </div>
   );

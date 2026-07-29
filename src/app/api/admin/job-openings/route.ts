@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 export async function GET() {
   const session = await getSession();
-  if (!session || session.role !== 'ADMIN') {
+  if (!session || !['ADMIN', 'MANAGER'].includes(session.role)) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
   }
 
@@ -22,7 +22,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
-  if (!session || session.role !== 'ADMIN') {
+  if (!session || !['ADMIN', 'MANAGER'].includes(session.role)) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
   }
 

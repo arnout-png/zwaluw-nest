@@ -6,6 +6,7 @@ import type { CandidateStatus } from '@/types';
 
 const ALL_STAGES: { value: CandidateStatus; label: string }[] = [
   { value: 'NEW_LEAD', label: 'Nieuw' },
+  { value: 'CONTACTED', label: 'Gecontacteerd' },
   { value: 'PRE_SCREENING', label: 'Pre-screening' },
   { value: 'SCREENING_DONE', label: 'Screening klaar' },
   { value: 'INTERVIEW', label: 'Sollicitatiegesprek' },
@@ -13,6 +14,17 @@ const ALL_STAGES: { value: CandidateStatus; label: string }[] = [
   { value: 'HIRED', label: 'Aangenomen' },
   { value: 'REJECTED', label: 'Afgewezen' },
 ];
+
+const STAGE_COLORS: Record<CandidateStatus, { active: string; past: string; future: string }> = {
+  NEW_LEAD:       { active: 'bg-blue-600 text-white',    past: 'bg-blue-600/20 text-blue-400',    future: 'bg-[#363848] text-[#9ca3af]' },
+  CONTACTED:      { active: 'bg-cyan-600 text-white',    past: 'bg-cyan-600/20 text-cyan-400',    future: 'bg-[#363848] text-[#9ca3af]' },
+  PRE_SCREENING:  { active: 'bg-yellow-600 text-white',  past: 'bg-yellow-600/20 text-yellow-400', future: 'bg-[#363848] text-[#9ca3af]' },
+  SCREENING_DONE: { active: 'bg-yellow-600 text-white',  past: 'bg-yellow-600/20 text-yellow-400', future: 'bg-[#363848] text-[#9ca3af]' },
+  INTERVIEW:      { active: 'bg-purple-600 text-white',  past: 'bg-purple-600/20 text-purple-400', future: 'bg-[#363848] text-[#9ca3af]' },
+  RESERVE_BANK:   { active: 'bg-[#4a8f85] text-white',   past: 'bg-[#4a8f85]/20 text-[#68b0a6]',  future: 'bg-[#363848] text-[#9ca3af]' },
+  HIRED:          { active: 'bg-green-700 text-white',    past: 'bg-green-700/20 text-green-400',  future: 'bg-[#363848] text-[#9ca3af]' },
+  REJECTED:       { active: 'bg-red-600 text-white',      past: 'bg-red-600/20 text-red-400',      future: 'bg-[#363848] text-[#9ca3af]' },
+};
 
 const REJECTION_REASONS = [
   { value: 'SALARY', label: 'Salarisverwachting te hoog' },
@@ -98,10 +110,10 @@ export function CandidateStageClient({ candidateId, currentStatus, candidateEmai
                 disabled={saving}
                 className={`rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
                   isCurrent
-                    ? 'bg-[#68b0a6] text-white'
+                    ? STAGE_COLORS[stage.value].active
                     : isPast
-                    ? 'bg-[#68b0a6]/20 text-[#68b0a6] hover:bg-[#68b0a6]/30'
-                    : 'bg-[#363848] text-[#9ca3af] hover:bg-[#42455a]'
+                    ? `${STAGE_COLORS[stage.value].past} hover:opacity-80`
+                    : `${STAGE_COLORS[stage.value].future} hover:bg-[#42455a]`
                 }`}
               >
                 {stage.label}

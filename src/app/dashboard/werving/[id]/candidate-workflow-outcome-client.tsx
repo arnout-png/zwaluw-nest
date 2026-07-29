@@ -1,8 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import type { CandidateStatus } from '@/types';
+
+interface UserOption {
+  id: string;
+  name: string;
+  role: string;
+}
 
 interface Props {
   candidateId: string;
@@ -18,7 +24,9 @@ export function CandidateWorkflowOutcomeClient({ candidateId, candidateStatus, c
   const [showRejectConfirm, setShowRejectConfirm] = useState(false);
   const [appointmentDate, setAppointmentDate] = useState('');
   const [appointmentTime, setAppointmentTime] = useState('');
-  const [appointmentLocation, setAppointmentLocation] = useState('Kantoor Zwaluw, Oss');
+  const [appointmentLocation, setAppointmentLocation] = useState('Zwaluw Comfortsanitair, Nijverheidsweg 25, Zeewolde');
+  const [interviewerId, setInterviewerId] = useState('');
+  const [colleagues, setColleagues] = useState<UserOption[]>([]);
   const [bookingStatus, setBookingStatus] = useState<'idle' | 'saving' | 'done' | 'error'>('idle');
   const [bookingError, setBookingError] = useState('');
   const [rejectStatus, setRejectStatus] = useState<'idle' | 'saving'>('idle');
@@ -31,6 +39,16 @@ export function CandidateWorkflowOutcomeClient({ candidateId, candidateStatus, c
   const [showInterviewReject, setShowInterviewReject] = useState(false);
   const [outcomeStatus, setOutcomeStatus] = useState<'idle' | 'saving'>('idle');
   const [outcomeError, setOutcomeError] = useState('');
+
+  // Fetch colleagues when appointment form opens
+  useEffect(() => {
+    if (showAppointmentForm && colleagues.length === 0) {
+      fetch('/api/employees/list')
+        .then(r => r.json())
+        .then(json => setColleagues(json.data ?? []))
+        .catch(() => {});
+    }
+  }, [showAppointmentForm, colleagues.length]);
 
   const isPreScreening = ['PRE_SCREENING', 'SCREENING_DONE'].includes(candidateStatus);
   const isInterview = candidateStatus === 'INTERVIEW';
@@ -48,6 +66,7 @@ export function CandidateWorkflowOutcomeClient({ candidateId, candidateStatus, c
           date: appointmentDate,
           time: appointmentTime,
           location: appointmentLocation,
+          interviewerId: interviewerId || undefined,
         }),
       });
       const json = await res.json();
@@ -216,6 +235,19 @@ export function CandidateWorkflowOutcomeClient({ candidateId, candidateStatus, c
             </button>
           </div>
           <form onSubmit={handleBookAppointment} className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-[#9ca3af] uppercase tracking-wide">Gesprek met</label>
+              <select
+                value={interviewerId}
+                onChange={e => setInterviewerId(e.target.value)}
+                className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white focus:border-blue-400 focus:outline-none"
+              >
+                <option value="">Ikzelf</option>
+                {colleagues.map(u => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
+              </select>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-[#9ca3af] uppercase tracking-wide">Datum *</label>

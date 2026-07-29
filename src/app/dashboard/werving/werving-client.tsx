@@ -19,6 +19,15 @@ import { VACATURE_ROL_LABELS } from '@/types';
 type ViewMode = 'kanban' | 'table';
 const VIEW_LS_KEY = 'werving-view';
 
+interface TrashedCandidate {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+  status: CandidateStatus;
+  deletedAt: string;
+}
+
 interface WervingClientProps {
   initialCandidates: Candidate[];
 }
@@ -34,6 +43,7 @@ interface NewCandidateForm {
 
 const COLUMNS: { title: string; statuses: CandidateStatus[]; color: string }[] = [
   { title: 'Nieuw', statuses: ['NEW_LEAD'], color: 'bg-blue-600' },
+  { title: 'Gecontacteerd', statuses: ['CONTACTED'], color: 'bg-cyan-600' },
   { title: 'Pre-screening', statuses: ['PRE_SCREENING', 'SCREENING_DONE'], color: 'bg-yellow-600' },
   { title: 'Sollicitatiegesprek', statuses: ['INTERVIEW'], color: 'bg-purple-600' },
   { title: 'Reserve Bank', statuses: ['RESERVE_BANK'], color: 'bg-[#4a8f85]' },
@@ -43,6 +53,7 @@ const COLUMNS: { title: string; statuses: CandidateStatus[]; color: string }[] =
 // Map each status to its primary column status (for drop target resolution)
 const STATUS_TO_COLUMN: Record<CandidateStatus, CandidateStatus> = {
   NEW_LEAD: 'NEW_LEAD',
+  CONTACTED: 'CONTACTED',
   PRE_SCREENING: 'PRE_SCREENING',
   SCREENING_DONE: 'PRE_SCREENING',
   INTERVIEW: 'INTERVIEW',
@@ -55,8 +66,13 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
   const [candidates, setCandidates] = useState<Candidate[]>(initialCandidates);
   const [view, setView] = useState<ViewMode>('kanban');
   const [roleFilter, setRoleFilter] = useState<VacatureRol | 'ALL'>('ALL');
+  const [callFilter, setCallFilter] = useState<string>('ALL');
   const [activeCandidate, setActiveCandidate] = useState<Candidate | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [trashView, setTrashView] = useState(false);
+  const [trashed, setTrashed] = useState<TrashedCandidate[]>([]);
+  const [trashLoading, setTrashLoading] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem(VIEW_LS_KEY);
@@ -172,9 +188,41 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
     }
   }
 
-  const visibleCandidates = roleFilter === 'ALL'
+  async function openTrash() {
+    setTrashView(true);
+    setTrashLoading(true);
+    try {
+      const res = await fetch('/api/candidates?trash=true');
+      const json = await res.json();
+      setTrashed(json.data ?? []);
+    } catch {
+      setTrashed([]);
+    } finally {
+      setTrashLoading(false);
+    }
+  }
+
+  async function handleRestore(id: string) {
+    setRestoringId(id);
+    try {
+      const res = await fetch(`/api/candidates/${id}`, { method: 'PUT' });
+      if (res.ok) {
+        setTrashed((prev) => prev.filter((c) => c.id !== id));
+      }
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
+  const roleFiltered = roleFilter === 'ALL'
     ? candidates
     : candidates.filter(c => c.jobOpening?.roleType === roleFilter);
+
+  const visibleCandidates = callFilter === 'ALL'
+    ? roleFiltered
+    : callFilter === 'ONGEBELD'
+      ? roleFiltered.filter(c => !c.lastCallLog)
+      : roleFiltered.filter(c => c.lastCallLog?.status === callFilter);
 
   // Collect roles that actually have candidates
   const activeRoles = [...new Set(
@@ -226,6 +274,20 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
               </svg>
             </button>
           </div>
+          <button
+            onClick={() => trashView ? setTrashView(false) : openTrash()}
+            title="Prullenbak"
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
+              trashView
+                ? 'border-red-500/40 bg-red-500/10 text-red-400'
+                : 'border-[#363848] text-[#9ca3af] hover:border-red-500/40 hover:text-red-400'
+            }`}
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            <span className="hidden sm:inline">Prullenbak</span>
+          </button>
           <button
             onClick={() => setShowForm(!showForm)}
             className="flex items-center gap-2 rounded-lg bg-[#68b0a6] px-4 py-2 text-sm font-medium text-white hover:bg-[#7ec4ba] transition-colors"
@@ -289,6 +351,32 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
         </div>
       )}
 
+      {/* Call status filter */}
+      <div className="flex flex-wrap gap-2">
+        {[
+          { key: 'ALL', label: 'Alle' },
+          { key: 'ONGEBELD', label: 'Ongebeld' },
+          { key: 'GEEN_GEHOOR', label: 'Geen gehoor' },
+          { key: 'VOICEMAIL', label: 'Voicemail' },
+          { key: 'TERUGBELLEN', label: 'Terugbellen' },
+          { key: 'BEREIKT', label: 'Contact' },
+          { key: 'FOUTIEF_NUMMER', label: 'Foutief nr' },
+        ].map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setCallFilter(key === callFilter ? 'ALL' : key)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              callFilter === key
+                ? 'bg-[#363848] text-white'
+                : 'border border-[#363848]/50 text-[#6b7280] hover:text-[#9ca3af] hover:border-[#363848]'
+            }`}
+          >
+            {label}
+            {key === 'ONGEBELD' && ` (${roleFiltered.filter(c => !c.lastCallLog).length})`}
+          </button>
+        ))}
+      </div>
+
       {/* New candidate form */}
       {showForm && (
         <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
@@ -338,13 +426,53 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
         </div>
       )}
 
+      {/* Trash view */}
+      {trashView && (
+        <div className="rounded-xl border border-red-500/20 bg-[#252732]">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-[#363848]">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Prullenbak</h2>
+              <p className="text-xs text-[#9ca3af] mt-0.5">Verwijderde kandidaten — herstel om ze terug te zetten</p>
+            </div>
+          </div>
+          {trashLoading ? (
+            <div className="px-5 py-8 text-center text-sm text-[#9ca3af]">Laden…</div>
+          ) : trashed.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-[#9ca3af]">Prullenbak is leeg</div>
+          ) : (
+            <ul className="divide-y divide-[#363848]">
+              {trashed.map((c) => (
+                <li key={c.id} className="flex items-center justify-between gap-4 px-5 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{c.name}</p>
+                    <p className="text-xs text-[#9ca3af] truncate">{c.email}{c.phone ? ` · ${c.phone}` : ''}</p>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-xs text-[#9ca3af]">
+                      {new Date(c.deletedAt).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </span>
+                    <button
+                      onClick={() => handleRestore(c.id)}
+                      disabled={restoringId === c.id}
+                      className="rounded-lg bg-[#363848] px-3 py-1.5 text-xs font-medium text-[#9ca3af] hover:text-white hover:bg-[#68b0a6]/20 hover:border-[#68b0a6]/40 border border-transparent transition-colors disabled:opacity-50"
+                    >
+                      {restoringId === c.id ? 'Bezig…' : 'Herstel'}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {/* Table view */}
-      {view === 'table' && (
+      {!trashView && view === 'table' && (
         <WervingTable candidates={visibleCandidates} />
       )}
 
       {/* Kanban board with DnD */}
-      {view === 'kanban' && (
+      {!trashView && view === 'kanban' && (
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
           <div className="overflow-x-auto pb-4">
             <div className="flex gap-4 min-w-max">

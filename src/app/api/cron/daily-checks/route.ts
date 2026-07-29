@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import {
   sendContractExpiryEmail,
   sendPoortwachterEmail,
+  isEmailConfigured,
 } from '@/lib/email';
 
 /**
@@ -35,28 +36,30 @@ export async function POST(request: NextRequest) {
     const targetDate = new Date(today.getTime() + threshold * 24 * 60 * 60 * 1000);
     const targetStr = targetDate.toISOString().split('T')[0];
 
-    // Get contracts expiring soon via EmployeeProfile → User join
+    // Get contracts expiring soon
     const { data: contracts } = await supabaseAdmin
       .from('Contract')
-      .select(
-        `id, employeeProfileId, endDate,
-         employeeProfile:EmployeeProfile!Contract_employeeProfileId_fkey (
-           userId,
-           user:User!EmployeeProfile_userId_fkey (id, name, email)
-         )`
-      )
+      .select('id, employeeProfileId, endDate')
       .eq('status', 'ACTIVE')
       .not('endDate', 'is', null)
       .gte('endDate', todayStr)
       .lte('endDate', targetStr);
 
+    // Enrich with employee names
+    const cEpIds = [...new Set((contracts ?? []).map((c: Record<string, unknown>) => c.employeeProfileId as string).filter(Boolean))];
+    let cEpUserMap: Record<string, { id: string; name: string; email: string }> = {};
+    if (cEpIds.length) {
+      const { data: eps } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', cEpIds);
+      if (eps?.length) {
+        const uIds = (eps as { userId: string }[]).map(e => e.userId);
+        const { data: users } = await supabaseAdmin.from('User').select('id, name, email').in('id', uIds);
+        const uMap = Object.fromEntries(((users ?? []) as { id: string; name: string; email: string }[]).map(u => [u.id, u]));
+        for (const ep of eps as { id: string; userId: string }[]) cEpUserMap[ep.id] = uMap[ep.userId] ?? { id: ep.userId, name: 'Onbekend', email: '' };
+      }
+    }
+
     for (const contract of contracts ?? []) {
-      const profileRaw = (contract as Record<string, unknown>).employeeProfile;
-      const profile = Array.isArray(profileRaw) ? profileRaw[0] : profileRaw;
-      const userRaw = (profile as Record<string, unknown> | undefined)?.user;
-      const user = Array.isArray(userRaw)
-        ? (userRaw[0] as { id: string; name: string; email: string } | undefined)
-        : (userRaw as { id: string; name: string; email: string } | undefined);
+      const user = cEpUserMap[(contract as Record<string, unknown>).employeeProfileId as string] ?? undefined;
       if (!user) continue;
 
       const daysLeft = Math.ceil(
@@ -86,7 +89,7 @@ export async function POST(request: NextRequest) {
         await supabaseAdmin.from('Notification').insert(notifRows);
       }
 
-      if (threshold === 30 && process.env.RESEND_API_KEY && process.env.ADMIN_EMAIL) {
+      if (threshold === 30 && isEmailConfigured() && process.env.ADMIN_EMAIL) {
         try {
           await sendContractExpiryEmail({
             to: process.env.ADMIN_EMAIL,
@@ -127,22 +130,24 @@ export async function POST(request: NextRequest) {
 
   const { data: activeSick } = await supabaseAdmin
     .from('SickTracker')
-    .select(
-      `id, employeeProfileId, sicknessStartDate, week6ProblemAnalysis, week8ActionPlan, week42UwvNotification,
-       employeeProfile:EmployeeProfile!SickTracker_employeeProfileId_fkey (
-         userId,
-         user:User!EmployeeProfile_userId_fkey (id, name, email)
-       )`
-    )
+    .select('id, employeeProfileId, sicknessStartDate, week6ProblemAnalysis, week8ActionPlan, week42UwvNotification')
     .is('sicknessEndDate', null);
 
+  // Enrich sick trackers with employee names
+  const sEpIds = [...new Set((activeSick ?? []).map((s: Record<string, unknown>) => s.employeeProfileId as string).filter(Boolean))];
+  let sEpUserMap: Record<string, { id: string; name: string; email: string }> = {};
+  if (sEpIds.length) {
+    const { data: eps } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', sEpIds);
+    if (eps?.length) {
+      const uIds = (eps as { userId: string }[]).map(e => e.userId);
+      const { data: users } = await supabaseAdmin.from('User').select('id, name, email').in('id', uIds);
+      const uMap = Object.fromEntries(((users ?? []) as { id: string; name: string; email: string }[]).map(u => [u.id, u]));
+      for (const ep of eps as { id: string; userId: string }[]) sEpUserMap[ep.id] = uMap[ep.userId] ?? { id: ep.userId, name: 'Onbekend', email: '' };
+    }
+  }
+
   for (const sick of activeSick ?? []) {
-    const profileRaw = (sick as Record<string, unknown>).employeeProfile;
-    const profile = Array.isArray(profileRaw) ? profileRaw[0] : profileRaw;
-    const userRaw = (profile as Record<string, unknown> | undefined)?.user;
-    const user = Array.isArray(userRaw)
-      ? (userRaw[0] as { id: string; name: string; email: string } | undefined)
-      : (userRaw as { id: string; name: string; email: string } | undefined);
+    const user = sEpUserMap[(sick as Record<string, unknown>).employeeProfileId as string] ?? undefined;
     if (!user) continue;
 
     const sickStart = new Date(sick.sicknessStartDate as string);
@@ -178,7 +183,7 @@ export async function POST(request: NextRequest) {
         await supabaseAdmin.from('Notification').insert(notifRows);
       }
 
-      if (process.env.RESEND_API_KEY && process.env.ADMIN_EMAIL) {
+      if (isEmailConfigured() && process.env.ADMIN_EMAIL) {
         try {
           await sendPoortwachterEmail({
             to: process.env.ADMIN_EMAIL,

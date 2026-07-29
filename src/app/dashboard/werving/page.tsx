@@ -6,7 +6,7 @@ import { WervingClient } from './werving-client';
 export default async function WervingPage() {
   const session = await getSession();
   if (!session) redirect('/login');
-  if (session.role !== 'ADMIN') redirect('/dashboard');
+  if (!['ADMIN', 'MANAGER'].includes(session.role)) redirect('/dashboard');
 
   const candidates = await getCandidates();
 

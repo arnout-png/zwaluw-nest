@@ -10,7 +10,7 @@ export async function POST(
   if (!session) {
     return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
   }
-  if (session.role !== 'ADMIN' && session.role !== 'PLANNER') {
+  if (!['ADMIN', 'MANAGER', 'PLANNER'].includes(session.role)) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
   }
 
@@ -32,16 +32,19 @@ export async function POST(
       authorId: session.userId,
       createdAt: new Date().toISOString(),
     })
-    .select(
-      `id, candidateId, content, authorId, createdAt,
-       author:User!CandidateNote_authorId_fkey (id, name, role)`
-    )
+    .select('id, candidateId, content, authorId, createdAt')
     .single();
 
   if (error) {
     console.error('POST /api/candidates/[id]/notes error:', error.message);
     return NextResponse.json({ error: 'Kan notitie niet opslaan.' }, { status: 500 });
   }
+
+  // Enrich with author info from session (no FK join needed)
+  const noteWithAuthor = {
+    ...note,
+    author: { id: session.userId, name: session.name, role: session.role },
+  };
 
   // 2. Insert @mention rows
   let mentions: { id: string; noteId: string; userId: string; user?: { id: string; name: string } }[] = [];
@@ -53,8 +56,18 @@ export async function POST(
     const { data: mentionData } = await supabaseAdmin
       .from('CandidateNoteMention')
       .insert(mentionRows)
-      .select('id, noteId, userId, user:User!CandidateNoteMention_userId_fkey (id, name)');
-    mentions = (mentionData ?? []) as unknown as typeof mentions;
+      .select('id, noteId, userId');
+
+    // Enrich mentions with user names
+    if (mentionData?.length) {
+      const mUserIds = (mentionData as { userId: string }[]).map(m => m.userId);
+      const { data: mUsers } = await supabaseAdmin.from('User').select('id, name').in('id', mUserIds);
+      const mUsersMap = Object.fromEntries(((mUsers ?? []) as { id: string; name: string }[]).map(u => [u.id, u]));
+      mentions = (mentionData as { id: string; noteId: string; userId: string }[]).map(m => ({
+        ...m,
+        user: mUsersMap[m.userId] ?? undefined,
+      }));
+    }
 
     // 3. Fetch candidate name for notifications
     const { data: candidateData } = await supabaseAdmin
@@ -81,5 +94,5 @@ export async function POST(
     }
   }
 
-  return NextResponse.json({ data: { ...note, mentions } }, { status: 201 });
+  return NextResponse.json({ data: { ...noteWithAuthor, mentions } }, { status: 201 });
 }

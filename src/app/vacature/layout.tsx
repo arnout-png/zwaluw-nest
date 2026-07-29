@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import Link from 'next/link';
+import MetaPixelScript from '@/components/MetaPixelScript';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -16,6 +17,9 @@ export const metadata: Metadata = {
 export default function VacatureLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className={`${inter.className} bg-[#fbf9f8] text-[#1b1c1c] antialiased min-h-screen flex flex-col`}>
+      {/* Meta Pixel — alleen op de publieke vacaturesectie, niet op het interne portal */}
+      <MetaPixelScript />
+
       {/* Sticky nav */}
       <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md shadow-sm">
         <div className="flex justify-between items-center max-w-7xl mx-auto px-6 py-3">

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHmac } from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase';
 import { appendLeadToSheet } from '@/lib/google-sheets';
-import { sendNewCandidateEmail } from '@/lib/email';
+import { sendNewCandidateEmail, isEmailConfigured } from '@/lib/email';
 
 /**
  * Facebook Lead Ads Webhook
@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Email ADMIN
-      if (process.env.RESEND_API_KEY && process.env.ADMIN_EMAIL) {
+      if (isEmailConfigured() && process.env.ADMIN_EMAIL) {
         try {
           await sendNewCandidateEmail({
             to: process.env.ADMIN_EMAIL,

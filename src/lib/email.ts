@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { getAutomationConfig } from './email-automations';
 
 /**
  * Gmail API transport via Google Workspace service account + domain-wide delegation.
@@ -31,6 +32,15 @@ function getGmailClient() {
 
 const FROM_NAME = 'ZwaluwNest';
 
+/**
+ * True zodra de Gmail-transport bruikbaar is. Gebruik dit als gate rond
+ * verzendlogica — NIET `process.env.RESEND_API_KEY`; Resend is vervangen door
+ * de Gmail API en die variabele bestaat niet meer.
+ */
+export function isEmailConfigured(): boolean {
+  return !!process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS;
+}
+
 async function sendViaGmail(opts: {
   to: string;
   subject: string;
@@ -44,11 +54,14 @@ async function sendViaGmail(opts: {
 
   const { gmail, sender } = getGmailClient();
 
+  // RFC 2047 encode subject for non-ASCII characters (em-dash, accents, etc.)
+  const encodedSubject = `=?UTF-8?B?${Buffer.from(opts.subject).toString('base64')}?=`;
+
   // Build RFC 2822 MIME message
   const message = [
     `From: ${FROM_NAME} <${sender}>`,
     `To: ${opts.to}`,
-    `Subject: ${opts.subject}`,
+    `Subject: ${encodedSubject}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/html; charset=UTF-8`,
     '',
@@ -121,6 +134,9 @@ export async function sendLeaveApprovedEmail(opts: {
   endDate: string;
   days: number;
 }) {
+  const auto = await getAutomationConfig('leave_approved');
+  if (!auto.enabled) return;
+
   const leaveLabels: Record<string, string> = {
     VACATION: 'Vakantie', SICK: 'Ziekteverlof', PERSONAL: 'Persoonlijk verlof',
     UNPAID: 'Onbetaald verlof', SPECIAL: 'Bijzonder verlof',
@@ -152,7 +168,7 @@ export async function sendLeaveApprovedEmail(opts: {
 
   return sendViaGmail({
     to: opts.to,
-    subject: `Verlof goedgekeurd — ${opts.days} dag${opts.days !== 1 ? 'en' : ''} ${label.toLowerCase()}`,
+    subject: auto.customSubject ?? `Verlof goedgekeurd — ${opts.days} dag${opts.days !== 1 ? 'en' : ''} ${label.toLowerCase()}`,
     html: htmlWrapper(content, 'Verlof goedgekeurd'),
     text: `Hallo ${opts.name}, je verlofaanvraag (${label}, ${opts.startDate} – ${opts.endDate}, ${opts.days} dagen) is goedgekeurd.`,
   });
@@ -166,6 +182,9 @@ export async function sendLeaveRejectedEmail(opts: {
   endDate: string;
   days: number;
 }) {
+  const auto = await getAutomationConfig('leave_rejected');
+  if (!auto.enabled) return;
+
   const leaveLabels: Record<string, string> = {
     VACATION: 'Vakantie', SICK: 'Ziekteverlof', PERSONAL: 'Persoonlijk verlof',
     UNPAID: 'Onbetaald verlof', SPECIAL: 'Bijzonder verlof',
@@ -192,7 +211,7 @@ export async function sendLeaveRejectedEmail(opts: {
 
   return sendViaGmail({
     to: opts.to,
-    subject: `Verlofaanvraag afgewezen — ${label}`,
+    subject: auto.customSubject ?? `Verlofaanvraag afgewezen — ${label}`,
     html: htmlWrapper(content, 'Verlof afgewezen'),
     text: `Hallo ${opts.name}, je verlofaanvraag (${label}, ${opts.startDate} – ${opts.endDate}) is afgewezen. Neem contact op met je leidinggevende.`,
   });
@@ -204,6 +223,9 @@ export async function sendContractExpiryEmail(opts: {
   endDate: string;
   daysLeft: number;
 }) {
+  const auto = await getAutomationConfig('contract_expiry');
+  if (!auto.enabled) return;
+
   const urgent = opts.daysLeft <= 14;
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">
@@ -221,7 +243,7 @@ export async function sendContractExpiryEmail(opts: {
 
   return sendViaGmail({
     to: opts.to,
-    subject: `${urgent ? '[URGENT] ' : ''}Contract ${opts.employeeName} verloopt over ${opts.daysLeft} dagen`,
+    subject: auto.customSubject ?? `${urgent ? '[URGENT] ' : ''}Contract ${opts.employeeName} verloopt over ${opts.daysLeft} dagen`,
     html: htmlWrapper(content, 'Contract verloopt'),
     text: `Contract van ${opts.employeeName} verloopt over ${opts.daysLeft} dagen op ${opts.endDate}.`,
   });
@@ -236,6 +258,9 @@ export async function sendNewCandidateEmail(opts: {
   campaignId?: string;
   portalUrl: string;
 }) {
+  const auto = await getAutomationConfig('new_candidate');
+  if (!auto.enabled) return;
+
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Nieuwe kandidaat via ${opts.source} 🎯</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
@@ -270,7 +295,7 @@ export async function sendNewCandidateEmail(opts: {
 
   return sendViaGmail({
     to: opts.to,
-    subject: `Nieuwe kandidaat: ${opts.candidateName} (${opts.source})`,
+    subject: auto.customSubject ?? `Nieuwe kandidaat: ${opts.candidateName} (${opts.source})`,
     html: htmlWrapper(content, 'Nieuwe kandidaat'),
     text: `Nieuwe kandidaat via ${opts.source}: ${opts.candidateName} (${opts.email}). Bekijk in ZwaluwNest: ${opts.portalUrl}`,
   });
@@ -283,6 +308,9 @@ export async function sendPoortwachterEmail(opts: {
   sickSince: string;
   action: string;
 }) {
+  const auto = await getAutomationConfig('poortwachter');
+  if (!auto.enabled) return;
+
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">⚠️ Poortwachter actie vereist — Week ${opts.week}</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
@@ -302,7 +330,7 @@ export async function sendPoortwachterEmail(opts: {
 
   return sendViaGmail({
     to: opts.to,
-    subject: `[Poortwachter] Week ${opts.week} actie vereist — ${opts.employeeName}`,
+    subject: auto.customSubject ?? `[Poortwachter] Week ${opts.week} actie vereist — ${opts.employeeName}`,
     html: htmlWrapper(content, `Poortwachter Week ${opts.week}`),
     text: `Poortwachter week ${opts.week} actie vereist voor ${opts.employeeName} (ziek sinds ${opts.sickSince}). Actie: ${opts.action}`,
   });
@@ -314,13 +342,19 @@ export async function sendPrescreeningEmail(opts: {
   token: string;
   baseUrl: string;
 }) {
+  const auto = await getAutomationConfig('prescreening_invite');
+  if (!auto.enabled) return;
+
   const url = `${opts.baseUrl}/screening/${opts.token}`;
+  const introText = auto.customIntro
+    ? auto.customIntro.replace(/\n/g, '<br />')
+    : 'Bedankt voor je interesse in een functie bij Veilig Douchen. We nodigen je uit om de pre-screening in te vullen. Dit duurt ongeveer 5 minuten.';
+
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Uitnodiging — Pre-screening Veilig Douchen</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 16px;">
       Hallo ${opts.name},<br /><br />
-      Bedankt voor je interesse in een functie bij Veilig Douchen. We nodigen je uit om de pre-screening in te vullen.
-      Dit duurt ongeveer 5 minuten.
+      ${introText}
     </p>
     <p style="color:#9ca3af;font-size:13px;margin:0 0 8px;">
       De link is 7 dagen geldig. Je hoeft geen account aan te maken.
@@ -333,7 +367,7 @@ export async function sendPrescreeningEmail(opts: {
 
   return sendViaGmail({
     to: opts.to,
-    subject: 'Uitnodiging pre-screening — Veilig Douchen',
+    subject: auto.customSubject ?? 'Uitnodiging pre-screening — Veilig Douchen',
     html: htmlWrapper(content, 'Pre-screening uitnodiging'),
     text: `Hallo ${opts.name}, vul je pre-screening in via: ${url} (geldig 7 dagen)`,
   });
@@ -344,12 +378,18 @@ export async function sendReviewRequestEmail(opts: {
   customerName: string;
   reviewUrl: string;
 }) {
+  const auto = await getAutomationConfig('review_request');
+  if (!auto.enabled) return;
+
+  const introText = auto.customIntro
+    ? auto.customIntro.replace(/\n/g, '<br />')
+    : 'Bedankt voor uw keuze voor Veilig Douchen! We hopen dat u tevreden bent met uw nieuwe doucheaanpassing. We stellen het zeer op prijs als u een review achterlaat.';
+
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Tevreden over uw nieuwe douche? ⭐</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
       Beste ${opts.customerName},<br /><br />
-      Bedankt voor uw keuze voor Veilig Douchen! We hopen dat u tevreden bent met uw nieuwe doucheaanpassing.
-      We stellen het zeer op prijs als u een review achterlaat.
+      ${introText}
     </p>
     ${btn('Laat een review achter →', opts.reviewUrl)}
     <p style="color:#6b7280;font-size:12px;margin-top:16px;">
@@ -359,7 +399,7 @@ export async function sendReviewRequestEmail(opts: {
 
   return sendViaGmail({
     to: opts.to,
-    subject: 'Hoe was uw ervaring met Veilig Douchen?',
+    subject: auto.customSubject ?? 'Hoe was uw ervaring met Veilig Douchen?',
     html: htmlWrapper(content, 'Review verzoek'),
     text: `Beste ${opts.customerName}, laat een review achter via: ${opts.reviewUrl}`,
   });
@@ -370,13 +410,17 @@ export async function sendInterviewInviteEmail(opts: {
   candidateName: string;
   recruiterName?: string;
 }) {
+  const auto = await getAutomationConfig('interview_invite');
+  if (!auto.enabled) return;
+
   const firstName = opts.candidateName.split(' ')[0];
+  const defaultIntro = `Goed nieuws! Na het beoordelen van jouw profiel nodigen we je uit voor een gesprek bij Veilig Douchen. We zijn erg benieuwd naar jouw achtergrond en motivatie.`;
+  const introText = auto.customIntro ? auto.customIntro.replace(/\n/g, '<br />') : defaultIntro;
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Uitnodiging gesprek — Veilig Douchen</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 16px;">
       Hallo ${firstName},<br /><br />
-      Goed nieuws! Na het beoordelen van jouw profiel nodigen we je uit voor een gesprek bij Veilig Douchen.
-      We zijn erg benieuwd naar jouw achtergrond en motivatie.<br /><br />
+      ${introText}<br /><br />
       ${opts.recruiterName ? `<strong style="color:#fff;">${opts.recruiterName}</strong> neemt binnenkort contact met je op om een datum en tijdstip af te spreken.` : 'Een van onze recruiters neemt binnenkort contact met je op om een datum en tijdstip af te spreken.'}
     </p>
     <div style="background:#1e2028;border-radius:8px;padding:16px;margin-top:16px;">
@@ -394,7 +438,7 @@ export async function sendInterviewInviteEmail(opts: {
 
   return sendViaGmail({
     to: opts.to,
-    subject: 'Uitnodiging gesprek — Veilig Douchen',
+    subject: auto.customSubject ?? 'Uitnodiging gesprek — Veilig Douchen',
     html: htmlWrapper(content, 'Uitnodiging gesprek'),
     text: `Hallo ${firstName}, goed nieuws! Je bent uitgenodigd voor een gesprek bij Veilig Douchen. ${opts.recruiterName ?? 'Een recruiter'} neemt binnenkort contact op.`,
   });
@@ -407,6 +451,8 @@ export async function sendAppointmentConfirmationCandidate(opts: {
   time: string;
   location: string;
 }) {
+  const auto = await getAutomationConfig('appointment_candidate');
+  if (!auto.enabled) return;
   if (!process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS) return;
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Afspraak bevestigd ✓</h2>
@@ -439,7 +485,7 @@ export async function sendAppointmentConfirmationCandidate(opts: {
 
   return sendViaGmail({
     to: opts.to,
-    subject: `Afspraak bevestigd — ${opts.date} om ${opts.time} uur`,
+    subject: auto.customSubject ?? `Afspraak bevestigd — ${opts.date} om ${opts.time} uur`,
     html: htmlWrapper(content, 'Afspraak bevestigd'),
     text: `Hoi ${opts.candidateName}, je sollicitatiegesprek is bevestigd op ${opts.date} om ${opts.time} uur op ${opts.location}. Tot dan! — Team Veilig Douchen`,
   });
@@ -452,6 +498,8 @@ export async function sendAppointmentNotificationInternal(opts: {
   date: string;
   time: string;
 }) {
+  const auto = await getAutomationConfig('appointment_internal');
+  if (!auto.enabled) return;
   if (!process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS) return;
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Afspraak ingepland 📅</h2>
@@ -484,7 +532,7 @@ export async function sendAppointmentNotificationInternal(opts: {
 
   return sendViaGmail({
     to: opts.to,
-    subject: `Afspraak ingepland: ${opts.candidateName} — ${opts.date} ${opts.time}`,
+    subject: auto.customSubject ?? `Afspraak ingepland: ${opts.candidateName} — ${opts.date} ${opts.time}`,
     html: htmlWrapper(content, 'Afspraak ingepland'),
     text: `Afspraak ingepland voor ${opts.candidateName} op ${opts.date} om ${opts.time} uur.`,
   });
@@ -494,15 +542,18 @@ export async function sendRejectionEmail(opts: {
   to: string;
   candidateName: string;
 }) {
+  const auto = await getAutomationConfig('rejection');
+  if (!auto.enabled) return;
+
   const firstName = opts.candidateName.split(' ')[0];
+  const defaultIntro = `Bedankt voor je interesse in een functie bij Veilig Douchen en de tijd die je hebt gestoken in je sollicitatie.\n\nNa zorgvuldige overweging hebben we besloten om je sollicitatie niet verder in behandeling te nemen. Dit is een moeilijke beslissing, want we hebben veel enthousiaste kandidaten ontvangen.\n\nWe wensen je veel succes bij je zoektocht naar een passende functie.`;
+  const introText = (auto.customIntro ?? defaultIntro).replace(/\n/g, '<br />');
+
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Terugkoppeling sollicitatie — Veilig Douchen</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 16px;">
       Hallo ${firstName},<br /><br />
-      Bedankt voor je interesse in een functie bij Veilig Douchen en de tijd die je hebt gestoken in je sollicitatie.<br /><br />
-      Na zorgvuldige overweging hebben we besloten om je sollicitatie niet verder in behandeling te nemen.
-      Dit is een moeilijke beslissing, want we hebben veel enthousiaste kandidaten ontvangen.<br /><br />
-      We wensen je veel succes bij je zoektocht naar een passende functie.
+      ${introText}
     </p>
     <div style="background:#1e2028;border-radius:8px;padding:16px;margin-top:16px;">
       <p style="color:#9ca3af;font-size:13px;margin:0;">
@@ -513,8 +564,45 @@ export async function sendRejectionEmail(opts: {
 
   return sendViaGmail({
     to: opts.to,
-    subject: 'Terugkoppeling sollicitatie — Veilig Douchen',
+    subject: auto.customSubject ?? 'Terugkoppeling sollicitatie — Veilig Douchen',
     html: htmlWrapper(content, 'Terugkoppeling sollicitatie'),
     text: `Hallo ${firstName}, bedankt voor je sollicitatie bij Veilig Douchen. Na zorgvuldige overweging hebben we besloten je sollicitatie niet verder in behandeling te nemen. Veel succes.`,
+  });
+}
+
+export async function sendPhoneCorrectEmail(opts: {
+  to: string;
+  name: string;
+  token: string;
+  baseUrl: string;
+}) {
+  const auto = await getAutomationConfig('phone_correct');
+  if (!auto.enabled) return;
+
+  const url = `${opts.baseUrl}/nummer-corrigeren/${opts.token}`;
+  const introText = auto.customIntro
+    ? auto.customIntro.replace(/\n/g, '<br />')
+    : 'We probeerden je te bellen, maar het telefoonnummer dat we hebben lijkt niet te kloppen. Wil je je correcte nummer aan ons doorgeven?';
+
+  const content = `
+    <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Telefoonnummer controleren</h2>
+    <p style="color:#9ca3af;font-size:14px;margin:0 0 16px;">
+      Hallo ${opts.name},<br /><br />
+      ${introText}
+    </p>
+    <p style="color:#9ca3af;font-size:13px;margin:0 0 8px;">
+      Klik op de knop hieronder om je juiste telefoonnummer door te geven. De link is 7 dagen geldig.
+    </p>
+    ${btn('Nummer corrigeren →', url)}
+    <p style="color:#6b7280;font-size:11px;margin-top:16px;">
+      Of kopieer deze link: <span style="color:#68b0a6;">${url}</span>
+    </p>
+  `;
+
+  return sendViaGmail({
+    to: opts.to,
+    subject: auto.customSubject ?? 'Klopt je telefoonnummer? — Veilig Douchen',
+    html: htmlWrapper(content, 'Telefoonnummer controleren'),
+    text: `Hallo ${opts.name}, we probeerden je te bellen maar het nummer klopt niet. Geef je correcte nummer door via: ${url} (geldig 7 dagen)`,
   });
 }

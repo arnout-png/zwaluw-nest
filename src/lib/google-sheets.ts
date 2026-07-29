@@ -173,6 +173,22 @@ export async function appendLeadToSheet(
   });
 }
 
+/**
+ * Map a freeform leadStatus string from Google Sheets to a CallStatus enum value.
+ * Returns null if the status doesn't indicate a call was made.
+ */
+export function mapLeadStatusToCallStatus(
+  leadStatus: string
+): 'BEREIKT' | 'GEEN_GEHOOR' | 'VOICEMAIL' | 'TERUGBELLEN' | null {
+  if (!leadStatus?.trim()) return null;
+  const s = leadStatus.toLowerCase().trim();
+  if (/geen gehoor|niet opgenomen|niet bereikt/.test(s)) return 'GEEN_GEHOOR';
+  if (/voicemail|\bvm\b/.test(s)) return 'VOICEMAIL';
+  if (/terugbellen|teruggebeld|terugbel|callback/.test(s)) return 'TERUGBELLEN';
+  if (/contact|bereikt|gesprek|gebeld/.test(s)) return 'BEREIKT';
+  return null;
+}
+
 export interface SheetLead {
   date: string;
   name: string;

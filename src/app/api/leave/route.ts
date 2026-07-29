@@ -18,18 +18,13 @@ export async function GET() {
     return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
   }
 
-  const isAdminOrPlanner = session.role === 'ADMIN' || session.role === 'PLANNER';
+  const isAdminOrPlanner = session.role === 'ADMIN' || session.role === 'MANAGER' || session.role === 'PLANNER';
 
   let query = supabaseAdmin
     .from('LeaveRequest')
     .select(
       `id, employeeProfileId, type, status, startDate, endDate,
-       totalDays, reason, approvedById, respondedAt, createdAt,
-       employeeProfile:EmployeeProfile!LeaveRequest_employeeProfileId_fkey (
-         userId,
-         user:User!EmployeeProfile_userId_fkey (id, name, email, role)
-       ),
-       approvedBy:User!LeaveRequest_approvedById_fkey (id, name)`
+       totalDays, reason, approvedById, respondedAt, createdAt`
     )
     .order('createdAt', { ascending: false });
 
@@ -48,7 +43,37 @@ export async function GET() {
     return NextResponse.json({ error: 'Kan verlofaanvragen niet ophalen.' }, { status: 500 });
   }
 
-  return NextResponse.json({ data });
+  // Enrich with employee + approver names
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const epIds = [...new Set(rows.map(r => r.employeeProfileId as string).filter(Boolean))];
+  const approverIds = [...new Set(rows.map(r => r.approvedById as string).filter(Boolean))];
+
+  let epUserMap: Record<string, { userId: string; user: { id: string; name: string; email: string; role: string } }> = {};
+  if (epIds.length) {
+    const { data: eps } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', epIds);
+    if (eps?.length) {
+      const uIds = (eps as { userId: string }[]).map(e => e.userId);
+      const { data: users } = await supabaseAdmin.from('User').select('id, name, email, role').in('id', uIds);
+      const uMap = Object.fromEntries(((users ?? []) as { id: string; name: string; email: string; role: string }[]).map(u => [u.id, u]));
+      for (const ep of eps as { id: string; userId: string }[]) {
+        epUserMap[ep.id] = { userId: ep.userId, user: uMap[ep.userId] ?? { id: ep.userId, name: 'Onbekend', email: '', role: '' } };
+      }
+    }
+  }
+
+  let approverMap: Record<string, { id: string; name: string }> = {};
+  if (approverIds.length) {
+    const { data: approvers } = await supabaseAdmin.from('User').select('id, name').in('id', approverIds);
+    approverMap = Object.fromEntries(((approvers ?? []) as { id: string; name: string }[]).map(u => [u.id, u]));
+  }
+
+  const enriched = rows.map(r => ({
+    ...r,
+    employeeProfile: r.employeeProfileId ? epUserMap[r.employeeProfileId as string] ?? null : null,
+    approvedBy: r.approvedById ? approverMap[r.approvedById as string] ?? null : null,
+  }));
+
+  return NextResponse.json({ data: enriched });
 }
 
 export async function POST(request: NextRequest) {

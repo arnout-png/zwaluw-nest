@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
-import { sendReviewRequestEmail } from '@/lib/email';
+import { sendReviewRequestEmail, isEmailConfigured } from '@/lib/email';
 
 const REVIEW_URL = process.env.REVIEW_URL ?? 'https://g.page/r/veiligdouchen/review';
 
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Send email
-  if (process.env.RESEND_API_KEY) {
+  if (isEmailConfigured()) {
     try {
       await sendReviewRequestEmail({
         to: customerEmail,

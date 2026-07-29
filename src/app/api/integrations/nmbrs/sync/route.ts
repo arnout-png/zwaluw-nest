@@ -42,21 +42,27 @@ export async function POST(request: NextRequest) {
     // Get all ZwaluwNest employees without a Nmbrs ID
     const { data: profiles, error: profilesError } = await supabaseAdmin
       .from('EmployeeProfile')
-      .select(`
-        id, userId, startDate, nmbrsEmployeeId,
-        user:User!EmployeeProfile_userId_fkey (id, name, email)
-      `)
+      .select('id, userId, startDate, nmbrsEmployeeId')
       .is('nmbrsEmployeeId', null);
 
     if (profilesError) {
       return NextResponse.json({ error: profilesError.message }, { status: 500 });
     }
 
+    // Enrich profiles with user data
+    const nUserIds = ((profiles ?? []) as { userId: string }[]).map(p => p.userId).filter(Boolean);
+    let nUsersMap: Record<string, { name: string; email: string }> = {};
+    if (nUserIds.length) {
+      const { data: nUsers } = await supabaseAdmin.from('User').select('id, name, email').in('id', nUserIds);
+      nUsersMap = Object.fromEntries(((nUsers ?? []) as { id: string; name: string; email: string }[]).map(u => [u.id, { name: u.name, email: u.email }]));
+    }
+    const enrichedProfiles = ((profiles ?? []) as Record<string, unknown>[]).map(p => ({ ...p, user: nUsersMap[p.userId as string] ?? null }));
+
     let synced = 0;
     let skipped = 0;
     const errors: string[] = [];
 
-    for (const profile of profiles ?? []) {
+    for (const profile of enrichedProfiles) {
       const user = (profile as unknown as { user?: { name: string; email: string } }).user;
       if (!user) { skipped++; continue; }
 

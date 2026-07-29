@@ -6,7 +6,7 @@ import { TemplatesClient } from './templates-client';
 export default async function TemplatesPage() {
   const session = await getSession();
   if (!session) redirect('/login');
-  if (session.role !== 'ADMIN') redirect('/dashboard');
+  if (!['ADMIN', 'MANAGER'].includes(session.role)) redirect('/dashboard');
 
   const [screeningScripts, interviewChecklists] = await Promise.all([
     getAllScreeningScripts(),

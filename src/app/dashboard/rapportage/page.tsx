@@ -8,7 +8,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const CANDIDATE_LABELS: Record<string, string> = {
-  NEW_LEAD: 'Nieuwe lead', PRE_SCREENING: 'Pre-screening', SCREENING_DONE: 'Gescreend',
+  NEW_LEAD: 'Nieuwe lead', CONTACTED: 'Gecontacteerd', PRE_SCREENING: 'Pre-screening', SCREENING_DONE: 'Gescreend',
   INTERVIEW: 'Gesprek', RESERVE_BANK: 'Reservebank', HIRED: 'Aangenomen', REJECTED: 'Afgewezen',
 };
 
@@ -19,7 +19,7 @@ const LEAVE_TYPE_LABELS: Record<string, string> = {
 export default async function RapportagePage() {
   const session = await getSession();
   if (!session) redirect('/login');
-  if (session.role !== 'ADMIN' && session.role !== 'PLANNER') redirect('/dashboard');
+  if (!['ADMIN', 'MANAGER', 'PLANNER'].includes(session.role)) redirect('/dashboard');
 
   // ── Fetch all data in parallel ──────────────────────────────────────────────
   const [
@@ -124,7 +124,7 @@ export default async function RapportagePage() {
   const avgUsedPct = employees.length > 0 ? Math.round((totalUsed / Math.max(totalBalance, 1)) * 100) : 0;
 
   // Candidate pipeline
-  const pipelineOrder = ['NEW_LEAD', 'PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED'];
+  const pipelineOrder = ['NEW_LEAD', 'CONTACTED', 'PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED'];
   const candidateByStatus: Record<string, number> = {};
   for (const c of candidates) {
     candidateByStatus[c.status] = (candidateByStatus[c.status] ?? 0) + 1;

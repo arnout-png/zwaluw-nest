@@ -1,6 +1,8 @@
 // Telnyx SMS — pure fetch, no SDK dependency
 // Env vars: TELNYX_API_KEY, TELNYX_PHONE_NUMBER
 
+import { getAutomationConfig } from './email-automations';
+
 const TELNYX_MESSAGES_URL = 'https://api.telnyx.com/v2/messages';
 
 // Normalize Dutch phone numbers to E.164
@@ -50,10 +52,21 @@ export async function sendAppointmentSMS(opts: {
   time: string;
   location: string;
 }): Promise<void> {
+  const auto = await getAutomationConfig('sms_appointment_confirm');
+  if (!auto.enabled) return;
+
   const firstName = opts.candidateName.split(' ')[0];
-  const body =
+  const defaultBody =
     `Hoi ${firstName}! Je sollicitatiegesprek bij Zwaluw Comfortsanitair is bevestigd ` +
     `op ${opts.date} om ${opts.time} uur op ${opts.location}. Tot dan! — Team Zwaluw`;
+
+  const body = auto.customIntro
+    ? auto.customIntro
+        .replace(/\{naam\}/g, firstName)
+        .replace(/\{datum\}/g, opts.date)
+        .replace(/\{tijd\}/g, opts.time)
+        .replace(/\{locatie\}/g, opts.location)
+    : defaultBody;
 
   await sendSMS(opts.to, body);
 }
@@ -63,10 +76,19 @@ export async function sendScreeningInviteSMS(opts: {
   candidateName: string;
   url: string;
 }): Promise<void> {
+  const auto = await getAutomationConfig('sms_screening_invite');
+  if (!auto.enabled) return;
+
   const firstName = opts.candidateName.split(' ')[0];
-  const body =
+  const defaultBody =
     `Hoi ${firstName}, bedankt voor je interesse bij Zwaluw Comfortsanitair! ` +
     `Vul je pre-screening in (5 min): ${opts.url}`;
+
+  const body = auto.customIntro
+    ? auto.customIntro
+        .replace(/\{naam\}/g, firstName)
+        .replace(/\{url\}/g, opts.url)
+    : defaultBody;
 
   await sendSMS(opts.to, body);
 }

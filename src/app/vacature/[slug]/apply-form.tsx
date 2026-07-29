@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { trackApplicationSubmit } from '@/lib/meta-pixel';
 
 interface Props {
   jobId: string;
@@ -17,11 +18,8 @@ export function ApplyForm({ jobId, jobTitle, slug }: Props) {
     street: '',
     postalCode: '',
     city: '',
-    linkedinUrl: '',
     cvUrl: '',
     motivation: '',
-    availableFrom: '',
-    salaryExpectation: '',
     consent: false,
   });
   const [submitting, setSubmitting] = useState(false);
@@ -74,6 +72,8 @@ export function ApplyForm({ jobId, jobTitle, slug }: Props) {
         return;
       }
       setSubmitted(true);
+      // Meta-conversie: sollicitatie succesvol verzonden (SubmitApplication).
+      trackApplicationSubmit();
     } catch {
       setError('Er is een fout opgetreden. Probeer het opnieuw.');
     } finally {
@@ -157,7 +157,7 @@ export function ApplyForm({ jobId, jobTitle, slug }: Props) {
       </div>
 
       {/* Adres */}
-      <div className="md:col-span-4 flex flex-col gap-1.5">
+      <div className="md:col-span-6 flex flex-col gap-1.5">
         <label className={labelCls}>Straat & Huisnummer</label>
         <input
           type="text"
@@ -177,45 +177,13 @@ export function ApplyForm({ jobId, jobTitle, slug }: Props) {
           className={inputCls}
         />
       </div>
-      <div className="md:col-span-3 flex flex-col gap-1.5">
+      <div className="md:col-span-4 flex flex-col gap-1.5">
         <label className={labelCls}>Woonplaats</label>
         <input
           type="text"
           value={form.city}
           onChange={(e) => update('city', e.target.value)}
           placeholder="Amsterdam"
-          className={inputCls}
-        />
-      </div>
-      <div className="md:col-span-3 flex flex-col gap-1.5">
-        <label className={labelCls}>Beschikbaar per</label>
-        <input
-          type="date"
-          value={form.availableFrom}
-          onChange={(e) => update('availableFrom', e.target.value)}
-          className={inputCls}
-        />
-      </div>
-
-      {/* LinkedIn */}
-      <div className="md:col-span-4 flex flex-col gap-1.5">
-        <label className={labelCls}>LinkedIn profiel</label>
-        <input
-          type="url"
-          value={form.linkedinUrl}
-          onChange={(e) => update('linkedinUrl', e.target.value)}
-          placeholder="https://linkedin.com/in/jouw-naam"
-          className={inputCls}
-        />
-      </div>
-      <div className="md:col-span-2 flex flex-col gap-1.5">
-        <label className={labelCls}>Salariswens (€)</label>
-        <input
-          type="number"
-          min={0}
-          placeholder="bijv. 3000"
-          value={form.salaryExpectation}
-          onChange={(e) => update('salaryExpectation', e.target.value)}
           className={inputCls}
         />
       </div>
