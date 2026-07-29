@@ -28,8 +28,23 @@ declare global {
  * Standaard-event `SubmitApplication` — semantisch de juiste voor een
  * sollicitatie (i.p.v. het generieke `Lead`), en Meta accepteert 'm zonder
  * whitelisting. No-op bij SSR of als de Pixel nog niet geladen is.
+ *
+ * `eventId` moet dezelfde waarde zijn als het `event_id` dat de sollicitatie-API
+ * server-side naar de Conversions API stuurt. Meta dedupliceert daarop, zodat de
+ * conversie één keer telt ook als beide kanalen aankomen. Zie src/lib/meta-capi.ts.
  */
-export function trackApplicationSubmit(): void {
+export function trackApplicationSubmit(eventId: string): void {
   if (typeof window === 'undefined' || !window.fbq) return;
-  window.fbq('track', 'SubmitApplication');
+  window.fbq('track', 'SubmitApplication', {}, { eventID: eventId });
+}
+
+/**
+ * Leest een cookie in de browser. Gebruikt voor `_fbp` en `_fbc`, die de Pixel
+ * zet en die de Conversions API nodig heeft om een serverevent aan dezelfde
+ * bezoeker te koppelen.
+ */
+export function readCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
 }

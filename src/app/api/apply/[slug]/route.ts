@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { sendNewCandidateEmail, isEmailConfigured } from '@/lib/email';
 import { autoAssignCandidate } from '@/lib/recruitment';
+import { sendApplicationCapiEvent } from '@/lib/meta-capi';
 
 /** Strip undefined and empty-string values so an update never blanks existing data. */
 function filled(obj: Record<string, string | undefined>): Record<string, string> {
@@ -27,7 +28,10 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
-  const body = await request.json() as {
+
+  // Een lege of ongeldige body (bots, een native form-post) mag geen
+  // onafgevangen SyntaxError geven — dat werd een 500.
+  let body: {
     firstName?: string;
     lastName?: string;
     email?: string;
@@ -42,7 +46,19 @@ export async function POST(
     street?: string;
     city?: string;
     postalCode?: string;
+    // Meta-attributie, meegestuurd door het formulier.
+    eventId?: string;
+    fbp?: string | null;
+    fbc?: string | null;
+    fbclid?: string | null;
+    sourceUrl?: string;
   };
+
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Ongeldige aanvraag.' }, { status: 400 });
+  }
 
   if (!body.email || !body.firstName || !body.lastName) {
     return NextResponse.json({ error: 'Voornaam, achternaam en e-mailadres zijn verplicht.' }, { status: 400 });
@@ -224,6 +240,28 @@ export async function POST(
     } catch (err) {
       console.error('New candidate email failed:', err);
     }
+  }
+
+  // Meta Conversions API — server-side tegenhanger van het browserevent.
+  // Zelfde eventId, dus Meta dedupliceert. Nooit fataal voor de sollicitatie.
+  if (body.eventId) {
+    await sendApplicationCapiEvent({
+      eventId: body.eventId,
+      name,
+      email: body.email!,
+      phone: body.phone,
+      city: body.city,
+      postalCode: body.postalCode,
+      sourceUrl:
+        body.sourceUrl ??
+        `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/vacature/${slug}`,
+      clientIp:
+        request.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? null,
+      clientUserAgent: request.headers.get('user-agent'),
+      fbp: body.fbp,
+      fbc: body.fbc,
+      fbclid: body.fbclid,
+    });
   }
 
   return NextResponse.json({ ok: true, candidateId });

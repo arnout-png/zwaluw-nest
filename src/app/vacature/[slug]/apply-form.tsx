@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { trackApplicationSubmit } from '@/lib/meta-pixel';
+import { trackApplicationSubmit, readCookie } from '@/lib/meta-pixel';
 
 interface Props {
   jobId: string;
@@ -60,11 +60,25 @@ export function ApplyForm({ jobId, jobTitle, slug }: Props) {
     }
     setError('');
     setSubmitting(true);
+
+    // Eén id voor beide kanalen: de browser-Pixel hieronder en het serverevent
+    // dat de API naar de Conversions API stuurt. Meta dedupliceert erop.
+    const eventId = crypto.randomUUID();
+
     try {
       const res = await fetch(`/api/apply/${slug}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, jobId }),
+        body: JSON.stringify({
+          ...form,
+          jobId,
+          eventId,
+          // Attributie-signalen die alleen de browser heeft.
+          fbp: readCookie('_fbp'),
+          fbc: readCookie('_fbc'),
+          fbclid: new URLSearchParams(window.location.search).get('fbclid'),
+          sourceUrl: window.location.href,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -73,7 +87,7 @@ export function ApplyForm({ jobId, jobTitle, slug }: Props) {
       }
       setSubmitted(true);
       // Meta-conversie: sollicitatie succesvol verzonden (SubmitApplication).
-      trackApplicationSubmit();
+      trackApplicationSubmit(eventId);
     } catch {
       setError('Er is een fout opgetreden. Probeer het opnieuw.');
     } finally {
