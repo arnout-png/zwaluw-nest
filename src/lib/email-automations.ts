@@ -121,6 +121,16 @@ export const EMAIL_AUTOMATION_CATALOG: AutomationDefinition[] = [
     hasCustomIntro: false,
   },
   {
+    key: 'lead_silence',
+    name: 'Leadstroom gestopt',
+    description: 'Waarschuwing als er dagenlang geen enkele nieuwe kandidaat binnenkomt terwijl er vacatures openstaan.',
+    trigger: 'Dagelijkse cron controle',
+    recipient: 'Beheerder',
+    category: 'Cron',
+    defaultSubject: 'Geen nieuwe kandidaten in {dagen} dagen',
+    hasCustomIntro: false,
+  },
+  {
     key: 'poortwachter',
     name: 'Poortwachter actie vereist',
     description: 'Herinnering bij poortwachter mijlpalen: week 6, 8, 13, 42 en 52.',

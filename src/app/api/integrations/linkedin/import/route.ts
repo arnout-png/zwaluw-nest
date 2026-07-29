@@ -80,8 +80,7 @@ export async function POST(req: NextRequest) {
       }
 
       await supabaseAdmin.from('Candidate').insert({
-        firstName: parsed.firstName,
-        lastName: parsed.lastName,
+        name: `${parsed.firstName} ${parsed.lastName}`.trim() || 'Onbekend',
         email: parsed.email,
         phone: parsed.phone ?? null,
         leadSource: 'LINKEDIN',

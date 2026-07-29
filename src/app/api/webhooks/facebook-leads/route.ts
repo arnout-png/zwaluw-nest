@@ -112,25 +112,31 @@ export async function POST(request: NextRequest) {
       const consentExpiry = new Date(consentDate);
       consentExpiry.setFullYear(consentExpiry.getFullYear() + 1);
 
-      // Insert candidate
+      // Insert candidate. Let op: Candidate heeft `name` (geen firstName/lastName),
+      // `consentDate` (geen consentGivenAt), en geen source/notes/availableFrom.
+      const candidateName = `${firstName} ${lastName}`.trim() || 'Onbekend';
+      const nowIso = new Date().toISOString();
+
       const { data: candidate, error: insertError } = await supabaseAdmin
         .from('Candidate')
         .insert({
-          firstName: firstName || 'Onbekend',
-          lastName: lastName || '',
+          name: candidateName,
           email: email || `lead-${leadId}@facebook-lead.local`,
           phone: phone || null,
+          location: location || null,
+          currentJob: currentJob || null,
           status: 'NEW_LEAD',
-          source: 'Facebook Ads',
-          leadSource: 'Facebook Ads',
+          leadSource: 'FACEBOOK',
           leadCampaignId: adId ?? pageId ?? null,
-          notes: currentJob ? `Huidige baan: ${currentJob}` : null,
-          salaryExpectation: salaryStr ? parseFloat(salaryStr.replace(/[^0-9.]/g, '')) || null : null,
-          availableFrom: null,
-          consentGivenAt: consentDate.toISOString(),
+          salaryExpectation: salaryStr || null,
+          consentGiven: true,
+          consentDate: consentDate.toISOString(),
           consentExpiresAt: consentExpiry.toISOString(),
+          stageUpdatedAt: nowIso,
+          createdAt: nowIso,
+          updatedAt: nowIso,
         })
-        .select()
+        .select('id')
         .single();
 
       if (insertError) {
@@ -138,7 +144,6 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const candidateName = `${firstName} ${lastName}`.trim();
       processed.push(candidateName);
 
       // Notify all ADMIN users in-app
@@ -153,8 +158,8 @@ export async function POST(request: NextRequest) {
         type: 'NEW_CANDIDATE',
         title: 'Nieuwe kandidaat via Facebook Ads',
         message: `${candidateName} heeft een formulier ingevuld via de Facebook Lead Ads campagne.`,
-        read: false,
-        link: '/dashboard/werving',
+        isRead: false,
+        linkUrl: `/dashboard/werving/${candidate.id}`,
       }));
 
       if (notifRows.length > 0) {

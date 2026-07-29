@@ -99,10 +99,6 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const nameParts  = lead.fullName.trim().split(' ');
-      const firstName  = nameParts[0] ?? 'Onbekend';
-      const lastName   = nameParts.slice(1).join(' ') || '';
-
       const consentDate   = new Date();
       const consentExpiry = new Date(consentDate);
       consentExpiry.setFullYear(consentExpiry.getFullYear() + 1);
@@ -110,13 +106,10 @@ export async function POST(request: NextRequest) {
       const { data: newCandidate, error: insertErr } = await supabaseAdmin
         .from('Candidate')
         .insert({
-          firstName,
-          lastName,
           name:            lead.fullName.trim(),
           email:           lead.email || `fb-${lead.facebookLeadId || Date.now()}@sheets.local`,
           phone:           lead.phone || null,
           status:          'NEW_LEAD',
-          source:          'Google Sheets (Facebook Leads)',
           leadSource:      'FACEBOOK',
           leadCampaignId:  lead.facebookLeadId || null,
           consentGiven:    true,

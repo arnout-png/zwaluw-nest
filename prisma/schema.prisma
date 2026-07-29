@@ -115,6 +115,15 @@ model Candidate {
   email    String
   phone    String?
 
+  // Adres (ingevuld via het sollicitatieformulier)
+  street     String?
+  postalCode String?
+  city       String?
+
+  // Documenten en profielen
+  cvUrl       String?
+  linkedinUrl String?
+
   // Pre-screening fields (filled via public form)
   age               Int?
   location          String?
@@ -136,6 +145,10 @@ model Candidate {
 
   // Stage tracking
   stageUpdatedAt    DateTime?  // Stamped whenever status changes
+
+  // Pre-screening flow (publieke link met token)
+  prescreeningToken     String?
+  prescreeningExpiresAt DateTime?
 
   // Phone correction flow
   phoneCorrectToken     String?

@@ -26,7 +26,7 @@ export async function POST(
   // Fetch candidate
   const { data: candidate, error: fetchError } = await supabaseAdmin
     .from('Candidate')
-    .select('id, firstName, lastName, name, email, phone, status, prescreeningToken')
+    .select('id, name, email, phone, status, prescreeningToken')
     .eq('id', id)
     .single();
 
@@ -68,7 +68,7 @@ export async function POST(
     try {
       await sendPrescreeningEmail({
         to: candidate.email as string,
-        name: (candidate.firstName as string) ?? 'Kandidaat',
+        name: ((candidate.name as string) ?? '').split(' ')[0] || 'Kandidaat',
         token,
         baseUrl,
       });
@@ -89,7 +89,7 @@ export async function POST(
     try {
       await sendScreeningInviteSMS({
         to: candidate.phone as string,
-        candidateName: (candidate.name as string) ?? (candidate.firstName as string) ?? 'Kandidaat',
+        candidateName: (candidate.name as string) ?? 'Kandidaat',
         url: screeningUrl,
       });
     } catch (err) {

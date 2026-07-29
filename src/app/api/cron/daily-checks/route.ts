@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import {
   sendContractExpiryEmail,
   sendPoortwachterEmail,
+  sendLeadSilenceEmail,
   isEmailConfigured,
 } from '@/lib/email';
 
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
 
     // Enrich with employee names
     const cEpIds = [...new Set((contracts ?? []).map((c: Record<string, unknown>) => c.employeeProfileId as string).filter(Boolean))];
-    let cEpUserMap: Record<string, { id: string; name: string; email: string }> = {};
+    const cEpUserMap: Record<string, { id: string; name: string; email: string }> = {};
     if (cEpIds.length) {
       const { data: eps } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', cEpIds);
       if (eps?.length) {
@@ -135,7 +136,7 @@ export async function POST(request: NextRequest) {
 
   // Enrich sick trackers with employee names
   const sEpIds = [...new Set((activeSick ?? []).map((s: Record<string, unknown>) => s.employeeProfileId as string).filter(Boolean))];
-  let sEpUserMap: Record<string, { id: string; name: string; email: string }> = {};
+  const sEpUserMap: Record<string, { id: string; name: string; email: string }> = {};
   if (sEpIds.length) {
     const { data: eps } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', sEpIds);
     if (eps?.length) {
@@ -331,6 +332,81 @@ export async function POST(request: NextRequest) {
       }
 
       results.push(`Stage alert: ${cand.name} (${daysInStage} dagen in ${label})`);
+    }
+  }
+
+  // ─── 5. Stilte-alarm: leadstroom gestopt ──────────────────────────────────
+  // In april 2026 viel de aanvoer vanuit Meta stil zonder dat iemand het merkte;
+  // het duurde drie maanden voor dat opviel. Deze check slaat aan zodra er
+  // LEAD_SILENCE_DAYS dagen geen enkele nieuwe kandidaat is binnengekomen,
+  // maar alleen zolang er nog een vacature openstaat.
+  const silenceDays = Number(process.env.LEAD_SILENCE_DAYS ?? 7);
+
+  const { count: openVacancies } = await supabaseAdmin
+    .from('JobOpening')
+    .select('id', { count: 'exact', head: true })
+    .eq('isActive', true);
+
+  if ((openVacancies ?? 0) > 0) {
+    const { data: newest } = await supabaseAdmin
+      .from('Candidate')
+      .select('createdAt')
+      .order('createdAt', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const lastLeadAt = newest?.createdAt ? new Date(newest.createdAt as string) : null;
+    const daysQuiet = lastLeadAt
+      ? Math.floor((today.getTime() - lastLeadAt.getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+
+    if (daysQuiet !== null && daysQuiet >= silenceDays) {
+      // Hoogstens één melding per week, anders wordt het dagelijkse ruis.
+      const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { count: recentAlert } = await supabaseAdmin
+        .from('Notification')
+        .select('id', { count: 'exact', head: true })
+        .eq('type', 'SYSTEM')
+        .like('title', 'Geen nieuwe kandidaten%')
+        .gte('createdAt', weekAgo);
+
+      if ((recentAlert ?? 0) === 0) {
+        const lastLeadNL = lastLeadAt!.toLocaleDateString('nl-NL', {
+          day: 'numeric', month: 'long', year: 'numeric',
+        });
+
+        const notifRows = adminIds.map((adminId: string) => ({
+          userId: adminId,
+          type: 'SYSTEM',
+          title: `Geen nieuwe kandidaten in ${daysQuiet} dagen`,
+          message:
+            `De laatste kandidaat kwam binnen op ${lastLeadNL}, ${daysQuiet} dagen geleden, ` +
+            `terwijl er ${openVacancies} vacature(s) openstaan. Controleer de Meta-koppeling ` +
+            `naar Google Sheets (token verloopt elke 60 dagen) en of de campagnes nog leveren.`,
+          isRead: false,
+          linkUrl: '/dashboard/werving',
+        }));
+
+        if (notifRows.length > 0) {
+          await supabaseAdmin.from('Notification').insert(notifRows);
+        }
+
+        if (isEmailConfigured() && process.env.ADMIN_EMAIL) {
+          try {
+            await sendLeadSilenceEmail({
+              to: process.env.ADMIN_EMAIL,
+              daysQuiet,
+              lastLeadDate: lastLeadNL,
+              openVacancies: openVacancies ?? 0,
+              portalUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/dashboard/werving`,
+            });
+          } catch (err) {
+            console.error('Lead silence email failed:', err);
+          }
+        }
+
+        results.push(`Stilte-alarm: ${daysQuiet} dagen geen nieuwe kandidaten`);
+      }
     }
   }
 

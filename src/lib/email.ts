@@ -249,6 +249,43 @@ export async function sendContractExpiryEmail(opts: {
   });
 }
 
+export async function sendLeadSilenceEmail(opts: {
+  to: string;
+  daysQuiet: number;
+  lastLeadDate: string;
+  openVacancies: number;
+  portalUrl: string;
+}) {
+  const auto = await getAutomationConfig('lead_silence');
+  if (!auto.enabled) return;
+
+  const content = `
+    <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">⚠️ De leadstroom lijkt stilgevallen</h2>
+    <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
+      Er is al <strong style="color:#f87171;">${opts.daysQuiet} dagen</strong> geen enkele nieuwe
+      kandidaat binnengekomen, terwijl er
+      <strong style="color:#e8e9ed;">${opts.openVacancies} vacature(s)</strong> openstaan.
+      De laatste kandidaat kwam binnen op <strong style="color:#e8e9ed;">${opts.lastLeadDate}</strong>.
+    </p>
+    <p style="color:#9ca3af;font-size:13px;margin:0 0 8px;">Controleer in deze volgorde:</p>
+    <ol style="color:#9ca3af;font-size:13px;margin:0 0 24px;padding-left:20px;">
+      <li style="margin-bottom:6px;">Schrijft de Meta-koppeling nog regels in de Google Sheet? Het access token verloopt elke 60 dagen.</li>
+      <li style="margin-bottom:6px;">Leveren de campagnes nog uit, of staan ze op pauze of zonder budget?</li>
+      <li>Draait de sync-cron zonder fouten?</li>
+    </ol>
+    <a href="${opts.portalUrl}" style="display:inline-block;background:#196961;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:600;">
+      Open de werving-module
+    </a>
+  `;
+
+  return sendViaGmail({
+    to: opts.to,
+    subject: auto.customSubject ?? `Geen nieuwe kandidaten in ${opts.daysQuiet} dagen`,
+    html: htmlWrapper(content, 'Leadstroom gestopt'),
+    text: `Er is al ${opts.daysQuiet} dagen geen nieuwe kandidaat binnengekomen (laatste: ${opts.lastLeadDate}), terwijl er ${opts.openVacancies} vacature(s) openstaan. Controleer de Meta-koppeling naar Google Sheets — dat token verloopt elke 60 dagen.`,
+  });
+}
+
 export async function sendNewCandidateEmail(opts: {
   to: string;
   candidateName: string;
