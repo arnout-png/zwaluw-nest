@@ -381,8 +381,9 @@ export async function POST(request: NextRequest) {
           title: `Geen nieuwe kandidaten in ${daysQuiet} dagen`,
           message:
             `De laatste kandidaat kwam binnen op ${lastLeadNL}, ${daysQuiet} dagen geleden, ` +
-            `terwijl er ${openVacancies} vacature(s) openstaan. Controleer de Meta-koppeling ` +
-            `naar Google Sheets (token verloopt elke 60 dagen) en of de campagnes nog leveren.`,
+            `terwijl er ${openVacancies} vacature(s) openstaan. De campagnes sturen verkeer naar ` +
+            `de vacaturepagina's: controleer of de advertenties nog uitleveren, of de Meta Pixel ` +
+            `nog SubmitApplication-events registreert, en of het sollicitatieformulier werkt.`,
           isRead: false,
           linkUrl: '/dashboard/werving',
         }));
