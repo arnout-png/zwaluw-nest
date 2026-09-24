@@ -11,6 +11,16 @@ import { readAllSheetLeads, mapLeadStatusToCallStatus } from '@/lib/google-sheet
  *
  * Secured via CRON_SECRET header.
  */
+type CandidateKey = { email: string | null; leadCampaignId: string | null };
+
+/**
+ * Facebook lead-id's komen uit de sheet als "l:123...". Ze zijn historisch opgeslagen
+ * met een extra prefix ("l:l:123..."), dus vergelijk altijd op de kale id.
+ */
+function canonicalLeadId(raw: string | null | undefined): string {
+  return (raw ?? '').trim().replace(/^(?:l:)+/, '');
+}
+
 export async function GET(request: NextRequest) {
   // Allow access via CRON_SECRET header OR authenticated ADMIN session
   const secret = request.headers.get('authorization');
@@ -31,23 +41,31 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ ok: true, message: 'Geen sheets geconfigureerd of leeg.', imported: 0 });
     }
 
-    // Collect existing Facebook Lead IDs
-    const { data: existingByFbId } = await supabaseAdmin
-      .from('Candidate')
-      .select('leadCampaignId')
-      .not('leadCampaignId', 'is', null)
-      .like('leadCampaignId', 'l:%');
+    // Bestaande kandidaten in pagina's ophalen. Zonder range kapt PostgREST de lijst
+    // af op db.max_rows; dan lijkt de database leeg en importeert de sync alles opnieuw.
+    const existing: CandidateKey[] = [];
+    const PAGE = 1000;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabaseAdmin
+        .from('Candidate')
+        .select('email, leadCampaignId')
+        .order('id', { ascending: true })
+        .range(from, from + PAGE - 1);
+
+      // Bij een fout stoppen: doorgaan met een halve lijst maakt duplicaten.
+      if (error) throw new Error(`Kan bestaande kandidaten niet laden: ${error.message}`);
+
+      const batch = (data ?? []) as CandidateKey[];
+      existing.push(...batch);
+      if (batch.length < PAGE) break;
+    }
 
     const existingFbIds = new Set(
-      (existingByFbId ?? []).map((c: { leadCampaignId: string }) => c.leadCampaignId)
+      existing.map(c => canonicalLeadId(c.leadCampaignId)).filter(Boolean)
     );
 
-    const { data: existingByEmail } = await supabaseAdmin
-      .from('Candidate')
-      .select('email');
-
     const existingEmails = new Set(
-      (existingByEmail ?? []).map((c: { email: string }) => c.email.toLowerCase().trim())
+      existing.map(c => (c.email ?? '').toLowerCase().trim()).filter(Boolean)
     );
 
     const { data: adminUser } = await supabaseAdmin
@@ -93,16 +111,23 @@ export async function GET(request: NextRequest) {
     let importedCount = 0;
     let assignedCount = 0;
 
-    for (const lead of leads) {
-      if (lead.facebookLeadId && existingFbIds.has(lead.facebookLeadId)) continue;
+    let skippedUnidentifiable = 0;
 
-      const emailKey = lead.email.toLowerCase().trim();
-      if (lead.email && existingEmails.has(emailKey)) continue;
+    for (const lead of leads) {
       if (!lead.fullName && !lead.email) continue;
 
-      const nameParts  = lead.fullName.trim().split(' ');
-      const firstName  = nameParts[0] ?? 'Onbekend';
-      const lastName   = nameParts.slice(1).join(' ') || '';
+      const fbId = canonicalLeadId(lead.facebookLeadId);
+      if (fbId && existingFbIds.has(fbId)) continue;
+
+      // Zonder e-mailadres een vaste sleutel afleiden uit het lead-id; met Date.now()
+      // was die elke run anders en kwam dezelfde lead telkens opnieuw binnen.
+      const email = (lead.email ?? '').trim();
+      const finalEmail = email || (fbId ? `fb-${fbId}@sheets.local` : '');
+      if (!finalEmail) { skippedUnidentifiable++; continue; }
+
+      const emailKey = finalEmail.toLowerCase();
+      if (existingEmails.has(emailKey)) continue;
+
       const consentDate   = new Date();
       const consentExpiry = new Date(consentDate);
       consentExpiry.setFullYear(consentExpiry.getFullYear() + 1);
@@ -115,11 +140,11 @@ export async function GET(request: NextRequest) {
         .from('Candidate')
         .insert({
           name:             lead.fullName.trim(),
-          email:            lead.email || `fb-${lead.facebookLeadId || Date.now()}@sheets.local`,
+          email:            finalEmail,
           phone:            lead.phone || null,
           status:           'NEW_LEAD',
           leadSource:       'FACEBOOK',
-          leadCampaignId:   lead.facebookLeadId ? `l:${lead.facebookLeadId}` : null,
+          leadCampaignId:   fbId ? `l:${fbId}` : null,
           jobOpeningId:     jobOpeningId,
           consentGiven:     true,
           consentDate:      consentDate.toISOString(),
@@ -134,8 +159,8 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      if (lead.facebookLeadId) existingFbIds.add(lead.facebookLeadId);
-      if (lead.email) existingEmails.add(emailKey);
+      if (fbId) existingFbIds.add(fbId);
+      existingEmails.add(emailKey);
       importedCount++;
 
       // Add note from sheet status
@@ -200,8 +225,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log(`[cron/sync-sheets] ${importedCount} nieuwe, ${assignedCount} gekoppeld, ${backfilledCount} backfilled`);
-    return NextResponse.json({ ok: true, imported: importedCount, assigned: assignedCount, backfilled: backfilledCount });
+    console.log(`[cron/sync-sheets] ${importedCount} nieuwe, ${assignedCount} gekoppeld, ${backfilledCount} backfilled, ${skippedUnidentifiable} zonder e-mail/lead-id overgeslagen`);
+    return NextResponse.json({ ok: true, imported: importedCount, assigned: assignedCount, backfilled: backfilledCount, skipped: skippedUnidentifiable });
 
   } catch (err) {
     console.error('[cron/sync-sheets] Fout:', err);
