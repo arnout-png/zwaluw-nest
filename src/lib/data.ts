@@ -88,6 +88,7 @@ export async function getCandidates(status?: string): Promise<Candidate[]> {
        consentGiven, consentDate, consentExpiresAt, leadSource, leadCampaignId,
        assignedToId, jobOpeningId, stageUpdatedAt, createdAt, updatedAt`
     )
+    .is('deletedAt', null)
     .order('createdAt', { ascending: false });
 
   if (status) query = query.eq('status', status);
@@ -123,7 +124,7 @@ export async function getCandidates(status?: string): Promise<Candidate[]> {
 
   // Batch fetch latest call log per candidate (accountability: last contact status)
   const allIds = candidates.map(c => c.id);
-  let callLogMap: Record<string, { status: string; createdAt: string }> = {};
+  const callLogMap: Record<string, { status: string; createdAt: string }> = {};
   if (allIds.length > 0) {
     const { data: callLogs } = await supabaseAdmin
       .from('CallLog')
@@ -375,7 +376,7 @@ export async function getAppointments(
 
   // Enrich with employeeProfile + user names
   const epIds = [...new Set(rows.map(r => r.employeeProfileId as string).filter(Boolean))];
-  let epMap: Record<string, { id: string; userId: string; user: { id: string; name: string; role: string } }> = {};
+  const epMap: Record<string, { id: string; userId: string; user: { id: string; name: string; role: string } }> = {};
   if (epIds.length) {
     const { data: eps } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', epIds);
     if (eps?.length) {
@@ -453,14 +454,17 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     supabaseAdmin
       .from('Candidate')
       .select('id', { count: 'exact', head: true })
+      .is('deletedAt', null)
       .not('status', 'in', '("HIRED","REJECTED")'),
     supabaseAdmin
       .from('Candidate')
       .select('id', { count: 'exact', head: true })
+      .is('deletedAt', null)
       .gte('createdAt', weekAgo),
     supabaseAdmin
       .from('Candidate')
       .select('id', { count: 'exact', head: true })
+      .is('deletedAt', null)
       .eq('status', 'INTERVIEW')
       .gte('stageUpdatedAt', weekAgo),
     supabaseAdmin

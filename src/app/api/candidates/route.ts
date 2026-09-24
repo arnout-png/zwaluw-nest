@@ -25,7 +25,6 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const trash = searchParams.get('trash') === 'true';
 
-  // Try with deletedAt first, fallback without if column doesn't exist
   let query = supabaseAdmin
     .from('Candidate')
     .select(
@@ -41,24 +40,10 @@ export async function GET(request: NextRequest) {
     query = query.is('deletedAt', null);
   }
 
-  let { data, error } = await query;
+  const { data, error } = await query;
 
-  // Fallback: deletedAt column might not exist
-  if (error || (data !== null && data.length === 0)) {
-    const fallback = await supabaseAdmin
-      .from('Candidate')
-      .select(
-        `id, status, name, email, phone, age, location, salaryExpectation,
-         consentGiven, consentDate, consentExpiresAt, leadSource, leadCampaignId,
-         createdAt, updatedAt`
-      )
-      .order('createdAt', { ascending: false });
-    if (!fallback.error && fallback.data && fallback.data.length > 0) {
-      data = fallback.data as typeof data;
-      error = null;
-    }
-  }
-
+  // Geen terugval op een query zonder deletedAt-filter: een lege uitkomst is een
+  // geldig antwoord, en de terugval toonde dan juist de opgeruimde kandidaten.
   if (error) {
     return NextResponse.json({ error: 'Kan kandidaten niet ophalen.' }, { status: 500 });
   }
