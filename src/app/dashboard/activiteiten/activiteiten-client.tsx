@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { PipelineMetrics } from './pipeline-metrics';
 import { UserActivity } from './user-activity';
 
@@ -91,6 +91,18 @@ export function ActiviteitenClient({ users }: Props) {
   }, [page, filterUser, filterAction, filterFrom, filterTo]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Scroll terug naar de bovenkant van de tabel bij paginawissel — anders staat
+  // de gebruiker onderaan en lijkt de knop niets te doen.
+  const tableRef = useRef<HTMLDivElement>(null);
+  const skipScroll = useRef(true);
+  useEffect(() => {
+    if (skipScroll.current) { skipScroll.current = false; return; }
+    const el = tableRef.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY - 80; // 80px = sticky header
+    window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' });
+  }, [page]);
 
   function formatDetails(details: string | null, action: string): string {
     if (!details) return '';
@@ -218,13 +230,15 @@ export function ActiviteitenClient({ users }: Props) {
           </div>
 
           {/* Table */}
-          <div className="rounded-xl border border-[#363848] bg-[#252732] overflow-hidden">
-            {loading ? (
+          <div ref={tableRef} className="rounded-xl border border-[#363848] bg-[#252732] overflow-hidden">
+            {loading && entries.length === 0 ? (
               <div className="flex items-center justify-center py-12 text-sm text-[#9ca3af]">Laden...</div>
             ) : entries.length === 0 ? (
               <div className="flex items-center justify-center py-12 text-sm text-[#9ca3af]">Geen activiteiten gevonden.</div>
             ) : (
-              <div className="overflow-x-auto">
+              // Tabel blijft staan tijdens het herladen, zodat de paginahoogte niet
+              // inklapt en de scrollpositie niet naar boven springt.
+              <div className={`overflow-x-auto transition-opacity duration-150 ${loading ? 'opacity-40' : 'opacity-100'}`}>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-[#363848] text-left text-xs font-medium text-[#9ca3af] uppercase tracking-wider">

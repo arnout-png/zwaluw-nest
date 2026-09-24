@@ -115,7 +115,7 @@ export function WervingClient({ initialCandidates }: WervingClientProps) {
     // Map column primary status → the correct status to assign
     // For "PRE_SCREENING" column, keep current status if already in that column,
     // otherwise move to PRE_SCREENING
-    let newStatus: CandidateStatus = targetStatus;
+    const newStatus: CandidateStatus = targetStatus;
     if (targetStatus === STATUS_TO_COLUMN[candidate.status] && candidate.status !== targetStatus) {
       // Already in this logical column, keep current status
       return;

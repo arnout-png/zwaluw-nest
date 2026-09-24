@@ -48,7 +48,7 @@ export async function GET() {
   const epIds = [...new Set(rows.map(r => r.employeeProfileId as string).filter(Boolean))];
   const approverIds = [...new Set(rows.map(r => r.approvedById as string).filter(Boolean))];
 
-  let epUserMap: Record<string, { userId: string; user: { id: string; name: string; email: string; role: string } }> = {};
+  const epUserMap: Record<string, { userId: string; user: { id: string; name: string; email: string; role: string } }> = {};
   if (epIds.length) {
     const { data: eps } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', epIds);
     if (eps?.length) {
