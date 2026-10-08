@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
+import { syncOrderedRows } from '@/lib/template-sync';
 
 export async function PATCH(
   request: NextRequest,
@@ -35,20 +36,31 @@ export async function PATCH(
   if (isActive !== undefined) updates.isActive = isActive;
   if (roleType !== undefined) updates.roleType = roleType ?? null;
 
-  await supabaseAdmin.from('ScreeningScript').update(updates).eq('id', id);
+  const { error: updateError } = await supabaseAdmin.from('ScreeningScript').update(updates).eq('id', id);
+  if (updateError) {
+    console.error('PATCH screening-script error:', updateError.message);
+    return NextResponse.json({ error: 'Opslaan mislukt.' }, { status: 500 });
+  }
 
-  // Replace questions if provided
+  // Vragen bijwerken met behoud van ids (anders raken gegeven antwoorden los)
   if (Array.isArray(questions)) {
-    await supabaseAdmin.from('ScreeningQuestion').delete().eq('scriptId', id);
-    if (questions.length > 0) {
-      const qRows = questions.map((q: { question: string; placeholder?: string; required?: boolean }, i: number) => ({
-        scriptId: id,
-        question: q.question,
+    const rows = questions
+      .filter((q: { question?: string }) => typeof q?.question === 'string' && q.question.trim())
+      .map((q: { question: string; placeholder?: string; required?: boolean }) => ({
+        question: q.question.trim(),
         placeholder: q.placeholder ?? null,
         required: q.required ?? false,
-        order: i + 1,
       }));
-      await supabaseAdmin.from('ScreeningQuestion').insert(qRows);
+    const { error } = await syncOrderedRows({
+      table: 'ScreeningQuestion',
+      parentColumn: 'scriptId',
+      parentId: id,
+      textColumn: 'question',
+      rows,
+    });
+    if (error) {
+      console.error('PATCH screening-script questions error:', error);
+      return NextResponse.json({ error: 'Vragen opslaan mislukt.' }, { status: 500 });
     }
   }
 
