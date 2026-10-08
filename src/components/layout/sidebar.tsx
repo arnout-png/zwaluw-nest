@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useUser } from '@/contexts/user-context';
+import { hasPageAccess, navRoles } from '@/lib/nav';
 
 interface NavItem {
   href: string;
@@ -20,26 +21,10 @@ function DashboardIcon() {
   );
 }
 
-function PersoneelIcon() {
-  return (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  );
-}
-
 function WervingIcon() {
   return (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-    </svg>
-  );
-}
-
-function VerzuimIcon() {
-  return (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
     </svg>
   );
 }
@@ -123,55 +108,55 @@ const NAV_ITEMS: NavItem[] = [
     href: '/dashboard',
     label: 'Dashboard',
     icon: <DashboardIcon />,
-    roles: ['ADMIN', 'MANAGER', 'PLANNER', 'ADVISEUR', 'CALLCENTER', 'BACKOFFICE', 'WAREHOUSE'],
+    roles: navRoles('/dashboard'),
   },
   {
     href: '/dashboard/werving',
     label: 'Werving',
     icon: <WervingIcon />,
-    roles: ['ADMIN', 'MANAGER'],
+    roles: navRoles('/dashboard/werving'),
   },
   {
     href: '/dashboard/werving/templates',
     label: 'Scripts & Checklists',
     icon: <TemplatesIcon />,
-    roles: ['ADMIN', 'MANAGER'],
+    roles: navRoles('/dashboard/werving/templates'),
   },
   {
     href: '/dashboard/werving/vacatures',
     label: 'Vacatures',
     icon: <VacatureIcon />,
-    roles: ['ADMIN', 'MANAGER'],
+    roles: navRoles('/dashboard/werving/vacatures'),
   },
   {
     href: '/dashboard/agenda',
     label: 'Agenda',
     icon: <AgendaIcon />,
-    roles: ['ADMIN', 'MANAGER', 'PLANNER'],
+    roles: navRoles('/dashboard/agenda'),
   },
   {
     href: '/dashboard/mijn-werk',
     label: 'Mijn Werk',
     icon: <WerkIcon />,
-    roles: ['MONTEUR'],
+    roles: navRoles('/dashboard/mijn-werk'),
   },
   {
     href: '/dashboard/mijn-verlof',
     label: 'Mijn Verlof',
     icon: <VerlofIcon />,
-    roles: ['MONTEUR', 'ADVISEUR', 'CALLCENTER', 'BACKOFFICE', 'WAREHOUSE'],
+    roles: navRoles('/dashboard/mijn-verlof'),
   },
   {
     href: '/dashboard/rapportage',
     label: 'Rapportage',
     icon: <RapportageIcon />,
-    roles: ['ADMIN', 'MANAGER', 'PLANNER'],
+    roles: navRoles('/dashboard/rapportage'),
   },
   {
     href: '/dashboard/profiel',
     label: 'Mijn profiel',
     icon: <ProfielIcon />,
-    roles: ['ADMIN', 'MANAGER', 'PLANNER', 'ADVISEUR', 'MONTEUR', 'CALLCENTER', 'BACKOFFICE', 'WAREHOUSE'],
+    roles: navRoles('/dashboard/profiel'),
   },
   {
     href: '/dashboard/activiteiten',
@@ -181,7 +166,7 @@ const NAV_ITEMS: NavItem[] = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
       </svg>
     ),
-    roles: ['ADMIN'],
+    roles: navRoles('/dashboard/activiteiten'),
   },
   {
     href: '/dashboard/gebruikers',
@@ -191,19 +176,19 @@ const NAV_ITEMS: NavItem[] = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
       </svg>
     ),
-    roles: ['ADMIN'],
+    roles: navRoles('/dashboard/gebruikers'),
   },
   {
     href: '/dashboard/instellingen',
     label: 'Instellingen',
     icon: <InstellingenIcon />,
-    roles: ['ADMIN', 'MANAGER'],
+    roles: navRoles('/dashboard/instellingen'),
   },
   {
     href: '/dashboard/handleiding',
     label: 'Handleiding',
     icon: <HandleidingIcon />,
-    roles: ['ADMIN', 'MANAGER', 'PLANNER', 'ADVISEUR', 'MONTEUR', 'CALLCENTER', 'BACKOFFICE', 'WAREHOUSE'],
+    roles: navRoles('/dashboard/handleiding'),
   },
 ];
 
@@ -214,10 +199,7 @@ export function Sidebar() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const extraNavHrefs = permissions?.extraNav ?? [];
-  const visibleItems = NAV_ITEMS.filter(
-    (item) => item.roles.includes(role) || extraNavHrefs.includes(item.href)
-  );
+  const visibleItems = NAV_ITEMS.filter((item) => hasPageAccess(role, permissions, item.href));
 
   const initials = name
     .split(' ')

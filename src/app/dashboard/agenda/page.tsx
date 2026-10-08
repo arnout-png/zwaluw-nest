@@ -1,13 +1,17 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
+import { hasPageAccess } from '@/lib/nav';
+import { getUserPermissions } from '@/lib/permissions';
 import { getAppointments } from '@/lib/data';
 import { supabaseAdmin } from '@/lib/supabase';
 import { AgendaClient } from './agenda-client';
+import type { EmployeeWithProfile } from '@/types';
 
 export default async function AgendaPage() {
   const session = await getSession();
   if (!session) redirect('/login');
-  if (!['ADMIN', 'MANAGER', 'PLANNER'].includes(session.role)) redirect('/dashboard');
+  // Rol-standaard of een extra menu-item dat een beheerder heeft toegekend.
+  if (!hasPageAccess(session.role, await getUserPermissions(session.userId), '/dashboard/agenda')) redirect('/dashboard');
 
   // Fetch users directly (no EmployeeProfile join needed for agenda filter)
   const [appointments, usersResult] = await Promise.all([
@@ -33,5 +37,5 @@ export default async function AgendaPage() {
     }
   }
 
-  return <AgendaClient appointments={appointments} employees={users as any} />;
+  return <AgendaClient appointments={appointments} employees={users as unknown as EmployeeWithProfile[]} />;
 }

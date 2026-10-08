@@ -3,11 +3,13 @@
 import { useState } from 'react';
 import { LeaveRequestForm } from '@/components/verzuim/leave-request-form';
 import type { LeaveRequest } from '@/types';
+import { amsterdamDateString, datePart } from '@/lib/dates';
 
 interface MijnVerlofClientProps {
   leaveRequests: LeaveRequest[];
   leaveBalance: number;
   leaveUsed: number;
+  hasProfile: boolean;
 }
 
 const LEAVE_TYPE_LABELS: Record<string, string> = {
@@ -15,9 +17,11 @@ const LEAVE_TYPE_LABELS: Record<string, string> = {
   UNPAID: 'Onbetaald', SPECIAL: 'Bijzonder',
 };
 
-export function MijnVerlofClient({ leaveRequests: initial, leaveBalance, leaveUsed }: MijnVerlofClientProps) {
+export function MijnVerlofClient({ leaveRequests: initial, leaveBalance, leaveUsed, hasProfile }: MijnVerlofClientProps) {
   const [requests, setRequests] = useState<LeaveRequest[]>(initial);
   const [formMode, setFormMode] = useState<null | 'VACATION' | 'SICK'>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState('');
 
   const leaveRemaining = leaveBalance - leaveUsed;
   const leavePercent = Math.min(100, Math.round((leaveUsed / Math.max(leaveBalance, 1)) * 100));
@@ -25,6 +29,54 @@ export function MijnVerlofClient({ leaveRequests: initial, leaveBalance, leaveUs
   function handleSuccess() {
     setFormMode(null);
     window.location.reload();
+  }
+
+  async function handleRecover(id: string) {
+    setCancellingId(id);
+    setCancelError('');
+    try {
+      const res = await fetch(`/api/leave/${id}/herstel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        const json = await res.json().catch(() => ({}));
+        setCancelError(json.error ?? 'Hersteldmelding mislukt.');
+      }
+    } catch {
+      setCancelError('Kan geen verbinding maken met de server.');
+    } finally {
+      setCancellingId(null);
+    }
+  }
+
+  const todayNL = amsterdamDateString();
+  const isOngoingSick = (req: LeaveRequest) =>
+    req.type === 'SICK' && (!req.endDate || (datePart(req.endDate) ?? '') >= todayNL);
+
+  async function handleCancel(id: string) {
+    setCancellingId(id);
+    setCancelError('');
+    try {
+      const res = await fetch(`/api/leave/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'CANCELLED' }),
+      });
+      if (res.ok) {
+        setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: 'CANCELLED' } : r)));
+      } else {
+        const json = await res.json().catch(() => ({}));
+        setCancelError(json.error ?? 'Intrekken mislukt.');
+      }
+    } catch {
+      setCancelError('Kan geen verbinding maken met de server.');
+    } finally {
+      setCancellingId(null);
+    }
   }
 
   return (
@@ -52,8 +104,15 @@ export function MijnVerlofClient({ leaveRequests: initial, leaveBalance, leaveUs
         <p className="text-xs text-[#9ca3af]">{leaveRemaining} werkdagen resterend dit jaar</p>
       </div>
 
+      {!hasProfile && (
+        <div className="rounded-xl border border-[#f7a247]/30 bg-[#f7a247]/10 px-4 py-3 text-sm text-[#f7a247]">
+          Er is nog geen medewerkersprofiel aan je account gekoppeld. Vraag een beheerder om dit aan te maken
+          voordat je verlof aanvraagt of je ziek meldt.
+        </div>
+      )}
+
       {/* Action buttons */}
-      {formMode === null && (
+      {hasProfile && formMode === null && (
         <div className="grid grid-cols-2 gap-3">
           <button
             onClick={() => setFormMode('VACATION')}
@@ -93,6 +152,11 @@ export function MijnVerlofClient({ leaveRequests: initial, leaveBalance, leaveUs
       {/* History */}
       <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
         <h2 className="text-sm font-semibold text-white mb-4">Verlofhistorie</h2>
+        {cancelError && (
+          <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+            {cancelError}
+          </div>
+        )}
         {requests.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center">
             <svg className="h-10 w-10 text-[#363848] mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -122,7 +186,7 @@ export function MijnVerlofClient({ leaveRequests: initial, leaveBalance, leaveUs
                   </div>
                   <div className="text-xs text-[#9ca3af] mt-0.5">
                     {new Date(req.startDate).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long' })}
-                    {req.endDate ? ` – ${new Date(req.endDate).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })}` : ''}
+                    {req.endDate ? ` – ${new Date(req.endDate).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })}` : req.type === 'SICK' ? ' – lopend' : ''}
                   </div>
                   {req.reason && (
                     <div className="text-xs text-[#9ca3af] italic mt-0.5">{req.reason}</div>
@@ -133,6 +197,24 @@ export function MijnVerlofClient({ leaveRequests: initial, leaveBalance, leaveUs
                   <div className="text-xs text-[#9ca3af]">
                     {new Date(req.createdAt).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
                   </div>
+                  {isOngoingSick(req) && (
+                    <button
+                      onClick={() => handleRecover(req.id)}
+                      disabled={cancellingId === req.id}
+                      className="mt-1 block text-xs text-[#68b0a6] underline hover:text-white disabled:opacity-50"
+                    >
+                      {cancellingId === req.id ? 'Bezig…' : 'Hersteld melden'}
+                    </button>
+                  )}
+                  {req.status === 'PENDING' && (
+                    <button
+                      onClick={() => handleCancel(req.id)}
+                      disabled={cancellingId === req.id}
+                      className="mt-1 text-xs text-[#9ca3af] underline hover:text-red-400 disabled:opacity-50"
+                    >
+                      {cancellingId === req.id ? 'Intrekken…' : 'Intrekken'}
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

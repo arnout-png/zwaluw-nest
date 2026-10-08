@@ -3,10 +3,12 @@ import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { getDashboardStats, getRecentCandidates, getTodayCallbacks, getUpcomingCallbacks, getPlannedInterviews, getRecruitmentSummary } from '@/lib/data';
 import { StatCard } from '@/components/dashboard/stat-card';
+import { amsterdamDateString, amsterdamHour } from '@/lib/dates';
 import type { CandidateStatus } from '@/types';
 
 function getGreeting() {
-  const hour = new Date().getHours();
+  // Server draait in UTC; begroeting op Nederlandse tijd.
+  const hour = amsterdamHour();
   if (hour < 12) return 'Goedemorgen';
   if (hour < 18) return 'Goedemiddag';
   return 'Goedenavond';
@@ -69,13 +71,12 @@ export default async function DashboardPage() {
   ]);
 
   // Group upcoming callbacks by day (exclude today — those are in todayCallbacks)
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(0, 0, 0, 0);
-  const futureCallbacks = upcomingCallbacks.filter(cb => new Date(cb.callbackAt) >= tomorrow);
+  // "Morgen" en de daggroepen in Nederlandse tijd (server draait in UTC).
+  const todayNL = amsterdamDateString();
+  const futureCallbacks = upcomingCallbacks.filter(cb => amsterdamDateString(new Date(cb.callbackAt)) > todayNL);
   const callbacksByDay = new Map<string, typeof futureCallbacks>();
   for (const cb of futureCallbacks) {
-    const day = new Date(cb.callbackAt).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'short' });
+    const day = new Date(cb.callbackAt).toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'short', timeZone: 'Europe/Amsterdam' });
     if (!callbacksByDay.has(day)) callbacksByDay.set(day, []);
     callbacksByDay.get(day)!.push(cb);
   }
@@ -93,6 +94,7 @@ export default async function DashboardPage() {
             year: 'numeric',
             month: 'long',
             day: 'numeric',
+            timeZone: 'Europe/Amsterdam',
           })}
         </p>
       </div>
@@ -288,7 +290,7 @@ export default async function DashboardPage() {
                       )}
                     </div>
                     <span className="text-xs text-[#f7a247] shrink-0 ml-2">
-                      {new Date(cb.callbackAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(cb.callbackAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' })}
                     </span>
                   </Link>
                 ))}
@@ -328,7 +330,7 @@ export default async function DashboardPage() {
                             {cb.phone && <div className="text-xs text-[#9ca3af] mt-0.5">{cb.phone}</div>}
                           </div>
                           <span className="text-xs text-blue-400 shrink-0 ml-2">
-                            {new Date(cb.callbackAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+                            {new Date(cb.callbackAt).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' })}
                           </span>
                         </Link>
                       ))}

@@ -32,6 +32,21 @@ function getGmailClient() {
 
 const FROM_NAME = 'ZwaluwNest';
 
+/** HTML-escape voor waarden van buiten (namen, e-mailadressen, vrije tekst). */
+export function esc(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** Vrije tekst (bijv. aangepaste intro) veilig als HTML met regelafbrekingen. */
+function escMultiline(value: string): string {
+  return esc(value).replace(/\n/g, '<br />');
+}
+
 /**
  * True zodra de Gmail-transport bruikbaar is. Gebruik dit als gate rond
  * verzendlogica — NIET `process.env.RESEND_API_KEY`; Resend is vervangen door
@@ -52,15 +67,21 @@ async function sendViaGmail(opts: {
     return;
   }
 
+  // Geen header-injectie via een ontvanger met CR/LF (bijv. uit een formulier).
+  const to = opts.to.replace(/[\r\n]/g, '').trim();
+  if (!to || /[\s,;<>]/.test(to)) {
+    throw new Error(`Ongeldig e-mailadres voor verzending: ${JSON.stringify(opts.to)}`);
+  }
+
   const { gmail, sender } = getGmailClient();
 
   // RFC 2047 encode subject for non-ASCII characters (em-dash, accents, etc.)
-  const encodedSubject = `=?UTF-8?B?${Buffer.from(opts.subject).toString('base64')}?=`;
+  const encodedSubject = `=?UTF-8?B?${Buffer.from(opts.subject.replace(/[\r\n]+/g, ' ')).toString('base64')}?=`;
 
   // Build RFC 2822 MIME message
   const message = [
     `From: ${FROM_NAME} <${sender}>`,
-    `To: ${opts.to}`,
+    `To: ${to}`,
     `Subject: ${encodedSubject}`,
     `MIME-Version: 1.0`,
     `Content-Type: text/html; charset=UTF-8`,
@@ -121,7 +142,7 @@ function htmlWrapper(content: string, title: string) {
 }
 
 function btn(label: string, url: string) {
-  return `<a href="${url}" style="display:inline-block;margin-top:20px;padding:12px 24px;background:#68b0a6;color:#14151b;font-size:14px;font-weight:600;text-decoration:none;border-radius:8px;">${label}</a>`;
+  return `<a href="${esc(url)}" style="display:inline-block;margin-top:20px;padding:12px 24px;background:#68b0a6;color:#14151b;font-size:14px;font-weight:600;text-decoration:none;border-radius:8px;">${label}</a>`;
 }
 
 // ─── Email templates ───────────────────────────────────────────────────────────
@@ -145,7 +166,7 @@ export async function sendLeaveApprovedEmail(opts: {
 
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Verlof goedgekeurd ✓</h2>
-    <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">Hallo ${opts.name}, je verlofaanvraag is goedgekeurd.</p>
+    <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">Hallo ${esc(opts.name)}, je verlofaanvraag is goedgekeurd.</p>
     <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:8px;border:1px solid #363848;overflow:hidden;">
       <tr style="background:#1e2028;">
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Type</td>
@@ -153,11 +174,11 @@ export async function sendLeaveApprovedEmail(opts: {
       </tr>
       <tr>
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Van</td>
-        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${opts.startDate}</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${esc(opts.startDate)}</td>
       </tr>
       <tr style="background:#1e2028;">
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Tot</td>
-        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${opts.endDate}</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${esc(opts.endDate)}</td>
       </tr>
       <tr>
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Dagen</td>
@@ -194,7 +215,7 @@ export async function sendLeaveRejectedEmail(opts: {
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Verlofaanvraag afgewezen</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
-      Hallo ${opts.name}, helaas is je verlofaanvraag afgewezen.
+      Hallo ${esc(opts.name)}, helaas is je verlofaanvraag afgewezen.
       Neem contact op met je leidinggevende voor meer informatie.
     </p>
     <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:8px;border:1px solid #363848;overflow:hidden;">
@@ -204,7 +225,7 @@ export async function sendLeaveRejectedEmail(opts: {
       </tr>
       <tr>
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Periode</td>
-        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;">${opts.startDate} – ${opts.endDate}</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;">${esc(opts.startDate)} – ${esc(opts.endDate)}</td>
       </tr>
     </table>
   `;
@@ -232,9 +253,9 @@ export async function sendContractExpiryEmail(opts: {
       ${urgent ? '⚠️ Urgent: ' : ''}Contract verloopt binnenkort
     </h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
-      Het contract van <strong style="color:#e8e9ed;">${opts.employeeName}</strong> verloopt
+      Het contract van <strong style="color:#e8e9ed;">${esc(opts.employeeName)}</strong> verloopt
       over <strong style="color:${urgent ? '#f87171' : '#f7a247'};">${opts.daysLeft} dagen</strong>
-      op <strong style="color:#e8e9ed;">${opts.endDate}</strong>.
+      op <strong style="color:#e8e9ed;">${esc(opts.endDate)}</strong>.
     </p>
     <p style="color:#9ca3af;font-size:13px;">
       Vergeet niet tijdig actie te ondernemen: verlenging, omzetting naar vast dienstverband, of beëindiging.
@@ -265,7 +286,7 @@ export async function sendLeadSilenceEmail(opts: {
       Er is al <strong style="color:#f87171;">${opts.daysQuiet} dagen</strong> geen enkele nieuwe
       kandidaat binnengekomen, terwijl er
       <strong style="color:#e8e9ed;">${opts.openVacancies} vacature(s)</strong> openstaan.
-      De laatste kandidaat kwam binnen op <strong style="color:#e8e9ed;">${opts.lastLeadDate}</strong>.
+      De laatste kandidaat kwam binnen op <strong style="color:#e8e9ed;">${esc(opts.lastLeadDate)}</strong>.
     </p>
     <p style="color:#9ca3af;font-size:13px;margin:0 0 8px;">Controleer in deze volgorde:</p>
     <ol style="color:#9ca3af;font-size:13px;margin:0 0 24px;padding-left:20px;">
@@ -273,7 +294,7 @@ export async function sendLeadSilenceEmail(opts: {
       <li style="margin-bottom:6px;">Komen er in Meta Events Manager nog PageView- en SubmitApplication-events binnen vanaf de vacaturepagina's?</li>
       <li>Werkt het sollicitatieformulier zelf nog? Doe zelf een testsollicitatie.</li>
     </ol>
-    <a href="${opts.portalUrl}" style="display:inline-block;background:#196961;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:600;">
+    <a href="${esc(opts.portalUrl)}" style="display:inline-block;background:#196961;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:600;">
       Open de werving-module
     </a>
   `;
@@ -299,32 +320,32 @@ export async function sendNewCandidateEmail(opts: {
   if (!auto.enabled) return;
 
   const content = `
-    <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Nieuwe kandidaat via ${opts.source} 🎯</h2>
+    <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Nieuwe kandidaat via ${esc(opts.source)} 🎯</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
       Er is een nieuwe kandidaat binnengekomen via de Facebook Lead Ads campagne.
     </p>
     <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:8px;border:1px solid #363848;overflow:hidden;">
       <tr style="background:#1e2028;">
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Naam</td>
-        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${opts.candidateName}</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${esc(opts.candidateName)}</td>
       </tr>
       <tr>
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">E-mail</td>
-        <td style="padding:12px 16px;color:#68b0a6;font-size:13px;">${opts.email}</td>
+        <td style="padding:12px 16px;color:#68b0a6;font-size:13px;">${esc(opts.email)}</td>
       </tr>
       ${opts.phone ? `
       <tr style="background:#1e2028;">
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Telefoon</td>
-        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;">${opts.phone}</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;">${esc(opts.phone)}</td>
       </tr>` : ''}
       <tr ${opts.phone ? '' : 'style="background:#1e2028;"'}>
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Bron</td>
-        <td style="padding:12px 16px;color:#f7a247;font-size:13px;">${opts.source}</td>
+        <td style="padding:12px 16px;color:#f7a247;font-size:13px;">${esc(opts.source)}</td>
       </tr>
       ${opts.campaignId ? `
       <tr style="background:#1e2028;">
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Campagne ID</td>
-        <td style="padding:12px 16px;color:#e8e9ed;font-size:12px;font-family:monospace;">${opts.campaignId}</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:12px;font-family:monospace;">${esc(opts.campaignId)}</td>
       </tr>` : ''}
     </table>
     ${btn('Bekijk in Werving Kanban', opts.portalUrl)}
@@ -351,13 +372,13 @@ export async function sendPoortwachterEmail(opts: {
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">⚠️ Poortwachter actie vereist — Week ${opts.week}</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
-      <strong style="color:#e8e9ed;">${opts.employeeName}</strong> is ziek sinds
-      <strong style="color:#e8e9ed;">${opts.sickSince}</strong> en heeft nu week ${opts.week} bereikt
+      <strong style="color:#e8e9ed;">${esc(opts.employeeName)}</strong> is ziek sinds
+      <strong style="color:#e8e9ed;">${esc(opts.sickSince)}</strong> en heeft nu week ${opts.week} bereikt
       in de Wet verbetering poortwachter.
     </p>
     <div style="background:#f7a247/10;border:1px solid #f7a247;border-radius:8px;padding:16px;margin-bottom:16px;">
       <p style="color:#f7a247;font-size:13px;font-weight:600;margin:0 0 4px;">Vereiste actie:</p>
-      <p style="color:#e8e9ed;font-size:14px;margin:0;">${opts.action}</p>
+      <p style="color:#e8e9ed;font-size:14px;margin:0;">${esc(opts.action)}</p>
     </div>
     <p style="color:#9ca3af;font-size:12px;">
       Verzuim tijdig bijhouden voorkomt boetes van het UWV.
@@ -384,13 +405,13 @@ export async function sendPrescreeningEmail(opts: {
 
   const url = `${opts.baseUrl}/screening/${opts.token}`;
   const introText = auto.customIntro
-    ? auto.customIntro.replace(/\n/g, '<br />')
+    ? escMultiline(auto.customIntro)
     : 'Bedankt voor je interesse in een functie bij Veilig Douchen. We nodigen je uit om de pre-screening in te vullen. Dit duurt ongeveer 5 minuten.';
 
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Uitnodiging — Pre-screening Veilig Douchen</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 16px;">
-      Hallo ${opts.name},<br /><br />
+      Hallo ${esc(opts.name)},<br /><br />
       ${introText}
     </p>
     <p style="color:#9ca3af;font-size:13px;margin:0 0 8px;">
@@ -398,7 +419,7 @@ export async function sendPrescreeningEmail(opts: {
     </p>
     ${btn('Start pre-screening →', url)}
     <p style="color:#6b7280;font-size:11px;margin-top:16px;">
-      Of kopieer deze link: <span style="color:#68b0a6;">${url}</span>
+      Of kopieer deze link: <span style="color:#68b0a6;">${esc(url)}</span>
     </p>
   `;
 
@@ -419,13 +440,13 @@ export async function sendReviewRequestEmail(opts: {
   if (!auto.enabled) return;
 
   const introText = auto.customIntro
-    ? auto.customIntro.replace(/\n/g, '<br />')
+    ? escMultiline(auto.customIntro)
     : 'Bedankt voor uw keuze voor Veilig Douchen! We hopen dat u tevreden bent met uw nieuwe doucheaanpassing. We stellen het zeer op prijs als u een review achterlaat.';
 
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Tevreden over uw nieuwe douche? ⭐</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
-      Beste ${opts.customerName},<br /><br />
+      Beste ${esc(opts.customerName)},<br /><br />
       ${introText}
     </p>
     ${btn('Laat een review achter →', opts.reviewUrl)}
@@ -452,13 +473,13 @@ export async function sendInterviewInviteEmail(opts: {
 
   const firstName = opts.candidateName.split(' ')[0];
   const defaultIntro = `Goed nieuws! Na het beoordelen van jouw profiel nodigen we je uit voor een gesprek bij Veilig Douchen. We zijn erg benieuwd naar jouw achtergrond en motivatie.`;
-  const introText = auto.customIntro ? auto.customIntro.replace(/\n/g, '<br />') : defaultIntro;
+  const introText = auto.customIntro ? escMultiline(auto.customIntro) : defaultIntro;
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Uitnodiging gesprek — Veilig Douchen</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 16px;">
-      Hallo ${firstName},<br /><br />
+      Hallo ${esc(firstName)},<br /><br />
       ${introText}<br /><br />
-      ${opts.recruiterName ? `<strong style="color:#fff;">${opts.recruiterName}</strong> neemt binnenkort contact met je op om een datum en tijdstip af te spreken.` : 'Een van onze recruiters neemt binnenkort contact met je op om een datum en tijdstip af te spreken.'}
+      ${opts.recruiterName ? `<strong style="color:#fff;">${esc(opts.recruiterName)}</strong> neemt binnenkort contact met je op om een datum en tijdstip af te spreken.` : 'Een van onze recruiters neemt binnenkort contact met je op om een datum en tijdstip af te spreken.'}
     </p>
     <div style="background:#1e2028;border-radius:8px;padding:16px;margin-top:16px;">
       <p style="color:#9ca3af;font-size:13px;margin:0;">
@@ -494,21 +515,21 @@ export async function sendAppointmentConfirmationCandidate(opts: {
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Afspraak bevestigd ✓</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 24px;">
-      Hoi ${opts.candidateName},<br /><br />
+      Hoi ${esc(opts.candidateName)},<br /><br />
       Geweldig! Je sollicitatiegesprek bij Veilig Douchen is bevestigd. We kijken ernaar uit je te ontmoeten.
     </p>
     <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:8px;border:1px solid #363848;overflow:hidden;">
       <tr style="background:#1e2028;">
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Datum</td>
-        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${opts.date}</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${esc(opts.date)}</td>
       </tr>
       <tr>
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Tijd</td>
-        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${opts.time} uur</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${esc(opts.time)} uur</td>
       </tr>
       <tr style="background:#1e2028;">
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Locatie</td>
-        <td style="padding:12px 16px;color:#68b0a6;font-size:13px;">${opts.location}</td>
+        <td style="padding:12px 16px;color:#68b0a6;font-size:13px;">${esc(opts.location)}</td>
       </tr>
     </table>
     <p style="color:#9ca3af;font-size:13px;margin-top:20px;">
@@ -546,20 +567,20 @@ export async function sendAppointmentNotificationInternal(opts: {
     <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:8px;border:1px solid #363848;overflow:hidden;">
       <tr style="background:#1e2028;">
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Kandidaat</td>
-        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${opts.candidateName}</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${esc(opts.candidateName)}</td>
       </tr>
       ${opts.candidatePhone ? `
       <tr>
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Telefoon</td>
-        <td style="padding:12px 16px;color:#68b0a6;font-size:13px;">${opts.candidatePhone}</td>
+        <td style="padding:12px 16px;color:#68b0a6;font-size:13px;">${esc(opts.candidatePhone)}</td>
       </tr>` : ''}
       <tr style="background:#1e2028;">
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Datum</td>
-        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${opts.date}</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${esc(opts.date)}</td>
       </tr>
       <tr>
         <td style="padding:12px 16px;color:#9ca3af;font-size:13px;">Tijd</td>
-        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${opts.time} uur</td>
+        <td style="padding:12px 16px;color:#e8e9ed;font-size:13px;font-weight:500;">${esc(opts.time)} uur</td>
       </tr>
     </table>
     <p style="color:#9ca3af;font-size:12px;margin-top:16px;">
@@ -584,12 +605,12 @@ export async function sendRejectionEmail(opts: {
 
   const firstName = opts.candidateName.split(' ')[0];
   const defaultIntro = `Bedankt voor je interesse in een functie bij Veilig Douchen en de tijd die je hebt gestoken in je sollicitatie.\n\nNa zorgvuldige overweging hebben we besloten om je sollicitatie niet verder in behandeling te nemen. Dit is een moeilijke beslissing, want we hebben veel enthousiaste kandidaten ontvangen.\n\nWe wensen je veel succes bij je zoektocht naar een passende functie.`;
-  const introText = (auto.customIntro ?? defaultIntro).replace(/\n/g, '<br />');
+  const introText = escMultiline(auto.customIntro ?? defaultIntro);
 
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Terugkoppeling sollicitatie — Veilig Douchen</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 16px;">
-      Hallo ${firstName},<br /><br />
+      Hallo ${esc(firstName)},<br /><br />
       ${introText}
     </p>
     <div style="background:#1e2028;border-radius:8px;padding:16px;margin-top:16px;">
@@ -618,13 +639,13 @@ export async function sendPhoneCorrectEmail(opts: {
 
   const url = `${opts.baseUrl}/nummer-corrigeren/${opts.token}`;
   const introText = auto.customIntro
-    ? auto.customIntro.replace(/\n/g, '<br />')
+    ? escMultiline(auto.customIntro)
     : 'We probeerden je te bellen, maar het telefoonnummer dat we hebben lijkt niet te kloppen. Wil je je correcte nummer aan ons doorgeven?';
 
   const content = `
     <h2 style="color:#fff;font-size:20px;margin:0 0 8px;">Telefoonnummer controleren</h2>
     <p style="color:#9ca3af;font-size:14px;margin:0 0 16px;">
-      Hallo ${opts.name},<br /><br />
+      Hallo ${esc(opts.name)},<br /><br />
       ${introText}
     </p>
     <p style="color:#9ca3af;font-size:13px;margin:0 0 8px;">
@@ -632,7 +653,7 @@ export async function sendPhoneCorrectEmail(opts: {
     </p>
     ${btn('Nummer corrigeren →', url)}
     <p style="color:#6b7280;font-size:11px;margin-top:16px;">
-      Of kopieer deze link: <span style="color:#68b0a6;">${url}</span>
+      Of kopieer deze link: <span style="color:#68b0a6;">${esc(url)}</span>
     </p>
   `;
 

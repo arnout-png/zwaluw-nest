@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 
 interface UserActivity {
   userId: string;
@@ -53,17 +53,21 @@ export function UserActivity() {
   const [days, setDays] = useState(30);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/admin/user-activity?days=${days}`);
-      const json = await res.json();
-      setData(json.data ?? []);
-    } catch { /* silent */ }
-    setLoading(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/admin/user-activity?days=${days}`)
+      .then((res) => res.json())
+      .then((json) => { if (!cancelled) setData(json.data ?? []); })
+      .catch(() => { /* silent */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [days]);
 
-  useEffect(() => { load(); }, [load]);
+  function changeDays(d: number) {
+    if (d === days) return;
+    setLoading(true);
+    setDays(d);
+  }
 
   // Totals
   const totalLogins = data.reduce((s, u) => s + u.loginCount, 0);
@@ -77,7 +81,7 @@ export function UserActivity() {
         {[7, 14, 30, 90].map(d => (
           <button
             key={d}
-            onClick={() => setDays(d)}
+            onClick={() => changeDays(d)}
             className={`rounded-md px-3 py-1 text-sm font-medium transition-colors ${days === d ? 'bg-[#252732] text-white' : 'text-[#9ca3af] hover:text-white'}`}
           >
             {d} dagen

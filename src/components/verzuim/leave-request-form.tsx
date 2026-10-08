@@ -34,7 +34,12 @@ export function LeaveRequestForm({ onSuccess, onCancel, defaultType = 'VACATION'
     e.preventDefault();
     setError('');
     const days = calcDays();
-    if (days === 0) {
+    if (type === 'SICK') {
+      if (!startDate || (endDate && endDate < startDate)) {
+        setError('Selecteer een geldige eerste ziektedag.');
+        return;
+      }
+    } else if (days === 0) {
       setError('Selecteer geldige start- en einddatum (weekdagen).');
       return;
     }
@@ -43,7 +48,7 @@ export function LeaveRequestForm({ onSuccess, onCancel, defaultType = 'VACATION'
       const res = await fetch('/api/leave', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, startDate, endDate, days, reason }),
+        body: JSON.stringify({ type, startDate, endDate: endDate || undefined, reason }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -87,7 +92,7 @@ export function LeaveRequestForm({ onSuccess, onCancel, defaultType = 'VACATION'
       {/* Dates */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="mb-1.5 block text-xs font-medium text-[#9ca3af]">Startdatum</label>
+          <label className="mb-1.5 block text-xs font-medium text-[#9ca3af]">{type === 'SICK' ? 'Eerste ziektedag' : 'Startdatum'}</label>
           <input
             type="date"
             required
@@ -97,10 +102,12 @@ export function LeaveRequestForm({ onSuccess, onCancel, defaultType = 'VACATION'
           />
         </div>
         <div>
-          <label className="mb-1.5 block text-xs font-medium text-[#9ca3af]">Einddatum</label>
+          <label className="mb-1.5 block text-xs font-medium text-[#9ca3af]">
+            {type === 'SICK' ? 'Verwacht hersteld (optioneel)' : 'Einddatum'}
+          </label>
           <input
             type="date"
-            required
+            required={type !== 'SICK'}
             value={endDate}
             min={startDate}
             onChange={(e) => setEndDate(e.target.value)}
@@ -112,15 +119,23 @@ export function LeaveRequestForm({ onSuccess, onCancel, defaultType = 'VACATION'
       {days > 0 && (
         <p className="text-xs text-[#68b0a6]">{days} werkdag{days !== 1 ? 'en' : ''}</p>
       )}
+      {type === 'SICK' && (
+        <p className="text-xs text-[#9ca3af]">
+          Weet je nog niet wanneer je beter bent? Laat de einddatum leeg en meld je later hersteld. Vermeld geen medische informatie
+          (zoals de aard van je ziekte) — dat mag de werkgever volgens de AVG niet vastleggen.
+        </p>
+      )}
 
       {/* Reason */}
       <div>
-        <label className="mb-1.5 block text-xs font-medium text-[#9ca3af]">Reden (optioneel)</label>
+        <label className="mb-1.5 block text-xs font-medium text-[#9ca3af]">
+          {type === 'SICK' ? 'Opmerking (optioneel, geen medische info)' : 'Reden (optioneel)'}
+        </label>
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={2}
-          placeholder="Voeg een toelichting toe..."
+          placeholder={type === 'SICK' ? 'Bijv. bereikbaarheid of overdracht van werk...' : 'Voeg een toelichting toe...'}
           className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white placeholder-[#9ca3af] focus:border-[#68b0a6] focus:outline-none resize-none"
         />
       </div>

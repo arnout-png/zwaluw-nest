@@ -1,6 +1,11 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
+import { hasPageAccess } from '@/lib/nav';
+import { getUserPermissions } from '@/lib/permissions';
 import { supabaseAdmin } from '@/lib/supabase';
+import { getVacationDaysUsed } from '@/lib/data';
+import { addDays, addMonths, amsterdamDateString, datePart, daysBetween } from '@/lib/dates';
+import { POORTWACHTER_MILESTONES } from '@/lib/verzuim';
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Beheerder', PLANNER: 'Planner', ADVISEUR: 'Adviseur',
@@ -19,69 +24,104 @@ const LEAVE_TYPE_LABELS: Record<string, string> = {
 export default async function RapportagePage() {
   const session = await getSession();
   if (!session) redirect('/login');
-  if (!['ADMIN', 'MANAGER', 'PLANNER'].includes(session.role)) redirect('/dashboard');
+  // Rol-standaard of een extra menu-item dat een beheerder heeft toegekend.
+  if (!hasPageAccess(session.role, await getUserPermissions(session.userId), '/dashboard/rapportage')) redirect('/dashboard');
 
   // ── Fetch all data in parallel ──────────────────────────────────────────────
+  // Datums in Amsterdamse kalenderdagen (server draait in UTC).
+  const todayStr = amsterdamDateString();
+  const monthStart = `${todayStr.slice(0, 7)}-01`;
+  const nextMonthStart = addMonths(monthStart, 1);
+  const in30 = addDays(todayStr, 30);
+  const in60 = addDays(todayStr, 60);
+  const ninetyDaysAgo = addDays(todayStr, -90);
+  const pipelineOrder = ['NEW_LEAD', 'CONTACTED', 'PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED'];
+
+  // Medewerkers + profielen apart ophalen: de database heeft geen foreign keys,
+  // dus de PostgREST-embed EmployeeProfile!EmployeeProfile_userId_fkey faalde en
+  // de rapportage toonde 0 medewerkers.
+  const { data: usersData } = await supabaseAdmin
+    .from('User')
+    .select('id, role, isActive')
+    .eq('isActive', true);
+  const userRows = (usersData ?? []) as { id: string; role: string; isActive: boolean }[];
+  const { data: profilesData } = userRows.length
+    ? await supabaseAdmin
+        .from('EmployeeProfile')
+        .select('id, userId, department, leaveBalanceDays, leaveUsedDays, startDate')
+        .in('userId', userRows.map((u) => u.id))
+    : { data: [] };
+  type ProfileRow = { id: string; userId: string; department?: string; leaveBalanceDays: number; leaveUsedDays: number; startDate?: string };
+  const profileByUser = new Map(((profilesData ?? []) as ProfileRow[]).map((p) => [p.userId, p]));
+  const profileIds = [...profileByUser.values()].map((p) => p.id);
+  // Alleen gegevens van huidige medewerkers: er staan tientallen contracten,
+  // verlofaanvragen en ziekmeldingen van verwijderde (demo)profielen in de database.
+  const profileFilter = profileIds.length ? profileIds : ['00000000-0000-0000-0000-000000000000'];
+
   const [
-    employeesRes,
     contractsRes,
     leaveRes,
-    candidatesRes,
     sickRes,
     appointmentsRes,
+    vacationUsed,
+    ...candidateCounts
   ] = await Promise.all([
-    // Employees with profile
-    supabaseAdmin
-      .from('User')
-      .select(`id, role, isActive, employeeProfile:EmployeeProfile!EmployeeProfile_userId_fkey(id, department, leaveBalanceDays, leaveUsedDays, startDate)`)
-      .eq('isActive', true),
-
-    // All active contracts + expiring
     supabaseAdmin
       .from('Contract')
-      .select('id, status, endDate, contractType, contractSequence, employeeProfileId'),
+      .select('id, status, endDate, contractType, contractSequence, employeeProfileId')
+      .in('employeeProfileId', profileFilter),
 
     // Leave requests (last 90 days)
     supabaseAdmin
       .from('LeaveRequest')
       .select('id, type, status, totalDays, startDate, createdAt')
-      .gte('createdAt', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()),
+      .in('employeeProfileId', profileFilter)
+      .gte('createdAt', ninetyDaysAgo),
 
-    // Candidates
-    supabaseAdmin
-      .from('Candidate')
-      .select('id, status, createdAt'),
-
-    // Active sick trackers
+    // Lopende ziekmeldingen
     supabaseAdmin
       .from('SickTracker')
       .select('id, sicknessStartDate, sicknessEndDate, week6ProblemAnalysis, week8ActionPlan, week42UwvNotification')
-      .is('sicknessEndDate', null),
+      .in('employeeProfileId', profileFilter)
+      .or(`sicknessEndDate.is.null,sicknessEndDate.gte.${todayStr}`),
 
     // Appointments this month
     supabaseAdmin
       .from('Appointment')
       .select('id, status, date')
-      .gte('date', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0])
-      .lte('date', new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0]),
+      .gte('date', monthStart)
+      .lt('date', nextMonthStart),
+
+    getVacationDaysUsed(profileIds),
+
+    // Kandidaten per fase: tellen in de database (een gewone select kapt af op
+    // 1000 rijen) en zonder kandidaten in de prullenbak.
+    ...pipelineOrder.map((status) =>
+      supabaseAdmin
+        .from('Candidate')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', status)
+        .is('deletedAt', null)
+    ),
   ]);
 
   type EmpRow = {
     id: string; role: string; isActive: boolean;
     employeeProfile?: { id: string; department?: string; leaveBalanceDays: number; leaveUsedDays: number; startDate?: string } | null;
   };
-  const employees = (employeesRes.data as unknown as EmpRow[]) ?? [];
+  const employees: EmpRow[] = userRows.map((u) => {
+    const p = profileByUser.get(u.id);
+    return {
+      ...u,
+      employeeProfile: p ? { ...p, leaveUsedDays: (p.leaveUsedDays ?? 0) + (vacationUsed[p.id] ?? 0) } : null,
+    };
+  });
   const contracts = (contractsRes.data ?? []) as { id: string; status: string; endDate?: string; contractType: string; contractSequence: number; employeeProfileId: string }[];
   const leaveRequests = (leaveRes.data ?? []) as { id: string; type: string; status: string; totalDays?: number; startDate: string; createdAt: string }[];
-  const candidates = (candidatesRes.data ?? []) as { id: string; status: string; createdAt: string }[];
   const sickTrackers = (sickRes.data ?? []) as { id: string; sicknessStartDate: string; sicknessEndDate?: string; week6ProblemAnalysis: boolean; week8ActionPlan: boolean; week42UwvNotification: boolean }[];
   const appointments = (appointmentsRes.data ?? []) as { id: string; status: string; date: string }[];
 
   // ── Derived stats ────────────────────────────────────────────────────────────
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
-  const in30 = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const in60 = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   // Headcount by role
   const roleCount: Record<string, number> = {};
@@ -98,10 +138,14 @@ export default async function RapportagePage() {
   const deptEntries = Object.entries(deptCount).sort((a, b) => b[1] - a[1]);
   const maxDept = Math.max(...deptEntries.map(([, v]) => v), 1);
 
-  // Contract stats
-  const activeContracts = contracts.filter((c) => c.status === 'ACTIVE');
-  const expiringIn30 = activeContracts.filter((c) => c.endDate && c.endDate >= todayStr && c.endDate <= in30);
-  const expiringIn60 = activeContracts.filter((c) => c.endDate && c.endDate >= todayStr && c.endDate <= in60);
+  // Contract stats (ACTIVE met een verstreken einddatum telt als verlopen)
+  const activeContracts = contracts.filter((c) => c.status === 'ACTIVE' && (!c.endDate || (datePart(c.endDate) ?? '') >= todayStr));
+  const endsBy = (c: { endDate?: string }, until: string) => {
+    const end = datePart(c.endDate);
+    return !!end && end >= todayStr && end <= until;
+  };
+  const expiringIn30 = activeContracts.filter((c) => endsBy(c, in30));
+  const expiringIn60 = activeContracts.filter((c) => endsBy(c, in60));
   const permanentContracts = activeContracts.filter((c) => !c.endDate);
   const contractTypeCount: Record<string, number> = {};
   for (const c of activeContracts) {
@@ -118,27 +162,36 @@ export default async function RapportagePage() {
     if (lr.status === 'APPROVED') totalLeaveDays += lr.totalDays ?? 0;
   }
 
-  // Leave balance aggregated
+  // Leave balance aggregated (vakantiedagen dit jaar)
   const totalBalance = employees.reduce((s, e) => s + (e.employeeProfile?.leaveBalanceDays ?? 0), 0);
   const totalUsed = employees.reduce((s, e) => s + (e.employeeProfile?.leaveUsedDays ?? 0), 0);
   const avgUsedPct = employees.length > 0 ? Math.round((totalUsed / Math.max(totalBalance, 1)) * 100) : 0;
 
   // Candidate pipeline
-  const pipelineOrder = ['NEW_LEAD', 'CONTACTED', 'PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED', 'REJECTED'];
   const candidateByStatus: Record<string, number> = {};
-  for (const c of candidates) {
-    candidateByStatus[c.status] = (candidateByStatus[c.status] ?? 0) + 1;
-  }
-  const activeCandidates = candidates.filter((c) => !['HIRED', 'REJECTED'].includes(c.status)).length;
+  pipelineOrder.forEach((status, i) => {
+    candidateByStatus[status] = (candidateCounts[i] as { count: number | null }).count ?? 0;
+  });
+  const totalCandidates = pipelineOrder.reduce((sum, s) => sum + (candidateByStatus[s] ?? 0), 0);
+  const activeCandidates = pipelineOrder
+    .filter((s) => !['HIRED', 'REJECTED'].includes(s))
+    .reduce((sum, s) => sum + (candidateByStatus[s] ?? 0), 0);
 
-  // Sick leave milestones
-  const sick6Due = sickTrackers.filter((s) => !s.week6ProblemAnalysis).length;
-  const sick8Due = sickTrackers.filter((s) => !s.week8ActionPlan).length;
-  const sick42Due = sickTrackers.filter((s) => !s.week42UwvNotification).length;
+  // Poortwachter: alleen mijlpalen die nu aan de beurt (of te laat) zijn
+  const milestoneDue = (field: 'week6ProblemAnalysis' | 'week8ActionPlan' | 'week42UwvNotification') => {
+    const m = POORTWACHTER_MILESTONES.find((x) => x.field === field)!;
+    return sickTrackers.filter((s) => {
+      const start = datePart(s.sicknessStartDate);
+      return !!start && !s[field] && daysBetween(start, todayStr) >= m.remindFromDay;
+    }).length;
+  };
+  const sick6Due = milestoneDue('week6ProblemAnalysis');
+  const sick8Due = milestoneDue('week8ActionPlan');
+  const sick42Due = milestoneDue('week42UwvNotification');
 
   // Appointments this month
   const apptCompleted = appointments.filter((a) => a.status === 'COMPLETED').length;
-  const apptPlanned = appointments.filter((a) => ['SCHEDULED', 'CONFIRMED'].length > 0 && ['SCHEDULED', 'CONFIRMED'].includes(a.status)).length;
+  const apptPlanned = appointments.filter((a) => ['SCHEDULED', 'CONFIRMED'].includes(a.status)).length;
 
   return (
     <div className="space-y-6 fade-in">
@@ -154,7 +207,7 @@ export default async function RapportagePage() {
           { label: 'Actieve medewerkers', value: employees.length, sub: `${Object.keys(roleCount).length} rollen`, color: 'text-[#68b0a6]' },
           { label: 'Actieve contracten', value: activeContracts.length, sub: `${expiringIn60.length} verlopen binnenkort`, color: expiringIn30.length > 0 ? 'text-red-400' : 'text-[#f7a247]' },
           { label: 'Verlofaanvragen (90d)', value: leaveRequests.length, sub: `${leaveByStatus.PENDING} openstaand`, color: leaveByStatus.PENDING > 0 ? 'text-[#f7a247]' : 'text-[#68b0a6]' },
-          { label: 'Actieve kandidaten', value: activeCandidates, sub: `${candidates.length} totaal`, color: 'text-blue-400' },
+          { label: 'Actieve kandidaten', value: activeCandidates, sub: `${totalCandidates} totaal`, color: 'text-blue-400' },
         ].map((kpi) => (
           <div key={kpi.label} className="rounded-xl border border-[#363848] bg-[#252732] p-4">
             <div className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</div>
@@ -275,13 +328,13 @@ export default async function RapportagePage() {
         {/* Candidate pipeline */}
         <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
           <h2 className="text-sm font-semibold text-white mb-4">Werving pipeline</h2>
-          {candidates.length === 0 ? (
+          {totalCandidates === 0 ? (
             <p className="text-sm text-[#9ca3af] py-4 text-center">Geen kandidaten.</p>
           ) : (
             <div className="space-y-2">
               {pipelineOrder.filter((s) => (candidateByStatus[s] ?? 0) > 0).map((status) => {
                 const count = candidateByStatus[status] ?? 0;
-                const total = Math.max(candidates.length, 1);
+                const total = Math.max(totalCandidates, 1);
                 const pct = Math.round((count / total) * 100);
                 const isEnd = status === 'HIRED' || status === 'REJECTED';
                 return (
@@ -362,7 +415,7 @@ export default async function RapportagePage() {
           {/* Appointments this month */}
           <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
             <h2 className="text-sm font-semibold text-white mb-3">
-              Afspraken — {new Date().toLocaleDateString('nl-NL', { month: 'long', year: 'numeric' })}
+              Afspraken — {new Date(`${monthStart}T12:00:00Z`).toLocaleDateString('nl-NL', { month: 'long', year: 'numeric', timeZone: 'Europe/Amsterdam' })}
             </h2>
             <div className="grid grid-cols-3 gap-3">
               <div className="rounded-lg bg-[#1e2028] p-3">

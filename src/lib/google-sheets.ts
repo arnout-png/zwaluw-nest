@@ -27,6 +27,8 @@ function getClient() {
   return google.sheets({ version: 'v4', auth });
 }
 
+const SHEETS_TIMEOUT_MS = 30_000;
+
 function getSheetIds(): string[] {
   const raw = process.env.GOOGLE_SHEETS_IDS ?? process.env.GOOGLE_SHEETS_ID ?? '';
   return raw.split(',').map((s) => s.trim()).filter(Boolean);
@@ -64,14 +66,18 @@ export async function readAllSheetLeads(): Promise<FacebookSheetLead[]> {
 
   for (const spreadsheetId of sheetIds) {
     try {
-      // Auto-detect first tab name
-      const meta = await sheets.spreadsheets.get({ spreadsheetId });
+      // Auto-detect first tab name. Met timeout: op 5 oktober 2026 bleef een
+      // aanroep hangen tot de cron na 300 s werd afgebroken.
+      const meta = await sheets.spreadsheets.get(
+        { spreadsheetId, fields: 'sheets.properties.title' },
+        { timeout: SHEETS_TIMEOUT_MS }
+      );
       const firstTab = meta.data.sheets?.[0]?.properties?.title ?? 'Blad1';
 
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${firstTab}!A:S`,
-      });
+      const response = await sheets.spreadsheets.values.get(
+        { spreadsheetId, range: `${firstTab}!A:S` },
+        { timeout: SHEETS_TIMEOUT_MS }
+      );
 
       const rows = response.data.values ?? [];
       if (rows.length < 2) continue;

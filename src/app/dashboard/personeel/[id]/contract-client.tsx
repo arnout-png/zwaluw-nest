@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Contract } from '@/types';
+import { computeChain, nextChainPosition, probationWarnings, isPermanentContract } from '@/lib/contracts';
+import { amsterdamDateString, datePart } from '@/lib/dates';
 
 const CONTRACT_TYPES = [
   'Bepaalde tijd', 'Onbepaalde tijd', 'Oproepcontract', 'Tijdelijk', 'Uitzendcontract',
@@ -15,9 +17,17 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 function daysUntil(dateStr?: string | null): number | null {
-  if (!dateStr) return null;
-  const diff = new Date(dateStr).getTime() - new Date().setHours(0, 0, 0, 0);
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  const end = datePart(dateStr);
+  if (!end) return null;
+  const today = amsterdamDateString();
+  return Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+}
+
+/** ACTIVE met een einddatum in het verleden is in werkelijkheid verlopen. */
+function effectiveStatus(c: Contract): string {
+  const end = datePart(c.endDate);
+  if (c.status === 'ACTIVE' && end && end < amsterdamDateString()) return 'EXPIRED';
+  return c.status;
 }
 
 interface ContractClientProps {
@@ -30,6 +40,7 @@ export function ContractClient({ employeeProfileId, initialContracts }: Contract
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [form, setForm] = useState({
     contractType: 'Bepaalde tijd',
     startDate: '',
@@ -37,7 +48,6 @@ export function ContractClient({ employeeProfileId, initialContracts }: Contract
     hoursPerWeek: '40',
     salaryGross: '',
     probationEndDate: '',
-    contractSequence: String(Math.min(initialContracts.length + 1, 3)),
   });
 
   function resetForm() {
@@ -48,10 +58,26 @@ export function ContractClient({ employeeProfileId, initialContracts }: Contract
       hoursPerWeek: '40',
       salaryGross: '',
       probationEndDate: '',
-      contractSequence: String(Math.min(contracts.length + 1, 3)),
     });
     setError('');
   }
+
+  // Ketenbepaling: berekend uit de contracthistorie (3 tijdelijke contracten
+  // binnen 36 maanden, keten doorbroken na > 6 maanden tussenpoos).
+  const chain = useMemo(() => computeChain(contracts), [contracts]);
+  const formIsPermanent = isPermanentContract({ startDate: form.startDate, endDate: form.endDate || null, contractType: form.contractType });
+  const formPosition = form.startDate && !formIsPermanent ? nextChainPosition(contracts, form.startDate) : null;
+  const formWarnings = form.startDate
+    ? [
+        ...(formPosition !== null && formPosition > 3 ? ['Dit zou het 4e tijdelijke contract in de keten zijn: het geldt dan als contract voor onbepaalde tijd.'] : []),
+        ...probationWarnings({
+          startDate: form.startDate,
+          endDate: form.endDate || null,
+          probationEndDate: form.probationEndDate || null,
+          chainPosition: formPosition ?? 1,
+        }),
+      ]
+    : [];
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -69,12 +95,12 @@ export function ContractClient({ employeeProfileId, initialContracts }: Contract
           hoursPerWeek: form.hoursPerWeek ? Number(form.hoursPerWeek) : undefined,
           salaryGross: form.salaryGross ? Number(form.salaryGross) : undefined,
           probationEndDate: form.probationEndDate || undefined,
-          contractSequence: Number(form.contractSequence),
         }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Fout bij aanmaken contract.'); return; }
       setContracts((prev) => [data.data, ...prev]);
+      setWarnings(Array.isArray(data.warnings) ? data.warnings : []);
       setShowForm(false);
       resetForm();
     } catch {
@@ -83,8 +109,6 @@ export function ContractClient({ employeeProfileId, initialContracts }: Contract
       setSaving(false);
     }
   }
-
-  const chainCount = contracts.filter((c) => c.status === 'ACTIVE').length || contracts.length;
 
   return (
     <div className="rounded-xl border border-[#363848] bg-[#252732] p-5">
@@ -98,11 +122,17 @@ export function ContractClient({ employeeProfileId, initialContracts }: Contract
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className={`h-2 w-5 rounded-full ${i <= Math.min(chainCount, 3) ? 'bg-[#68b0a6]' : 'bg-[#363848]'}`}
+                  className={`h-2 w-5 rounded-full ${
+                    i <= Math.min(chain.count, 3)
+                      ? chain.level === 'exceeded' ? 'bg-red-400' : chain.level === 'warning' ? 'bg-[#f7a247]' : 'bg-[#68b0a6]'
+                      : 'bg-[#363848]'
+                  }`}
                 />
               ))}
             </div>
-            <span className="text-xs text-[#9ca3af]">{Math.min(chainCount, 3)}/3</span>
+            <span className="text-xs text-[#9ca3af]">
+              {chain.count}/3{chain.count > 0 ? ` · ${chain.months} mnd` : ''}
+            </span>
           </div>
         </div>
         <button
@@ -115,6 +145,19 @@ export function ContractClient({ employeeProfileId, initialContracts }: Contract
           Nieuw contract
         </button>
       </div>
+
+      {chain.message && (
+        <div className={`mb-4 rounded-lg border px-3 py-2 text-xs ${
+          chain.level === 'exceeded' ? 'border-red-500/30 bg-red-500/10 text-red-400' : 'border-[#f7a247]/30 bg-[#f7a247]/10 text-[#f7a247]'
+        }`}>
+          {chain.message}
+        </div>
+      )}
+      {warnings.length > 0 && (
+        <div className="mb-4 rounded-lg border border-[#f7a247]/30 bg-[#f7a247]/10 px-3 py-2 text-xs text-[#f7a247] space-y-1">
+          {warnings.map((w) => <p key={w}>{w}</p>)}
+        </div>
+      )}
 
       {/* Contract form */}
       {showForm && (
@@ -138,15 +181,9 @@ export function ContractClient({ employeeProfileId, initialContracts }: Contract
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[#9ca3af]">Ketenpositie</label>
-              <select
-                value={form.contractSequence}
-                onChange={(e) => setForm((f) => ({ ...f, contractSequence: e.target.value }))}
-                className="w-full rounded-lg border border-[#363848] bg-[#252732] px-3 py-2 text-xs text-white focus:border-[#68b0a6] focus:outline-none"
-              >
-                <option value="1">1e contract</option>
-                <option value="2">2e contract</option>
-                <option value="3">3e contract</option>
-              </select>
+              <div className="w-full rounded-lg border border-[#363848] bg-[#252732] px-3 py-2 text-xs text-[#9ca3af]">
+                {formIsPermanent ? 'n.v.t. (onbepaalde tijd)' : formPosition ? `${formPosition}e contract (automatisch)` : 'Kies eerst een startdatum'}
+              </div>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-[#9ca3af]">Startdatum *</label>
@@ -199,6 +236,11 @@ export function ContractClient({ employeeProfileId, initialContracts }: Contract
                 className="w-full rounded-lg border border-[#363848] bg-[#252732] px-3 py-2 text-xs text-white focus:border-[#68b0a6] focus:outline-none"
               />
             </div>
+            {formWarnings.length > 0 && (
+              <div className="col-span-2 rounded-lg border border-[#f7a247]/30 bg-[#f7a247]/10 px-3 py-2 text-xs text-[#f7a247] space-y-1">
+                {formWarnings.map((w) => <p key={w}>{w}</p>)}
+              </div>
+            )}
             <div className="col-span-2 flex gap-2">
               <button
                 type="submit"
@@ -226,6 +268,7 @@ export function ContractClient({ employeeProfileId, initialContracts }: Contract
         <div className="space-y-2">
           {contracts.map((c) => {
             const daysLeft = daysUntil(c.endDate);
+            const status = effectiveStatus(c);
             return (
               <div key={c.id} className="flex items-center justify-between rounded-lg bg-[#1e2028] px-4 py-3">
                 <div className="min-w-0">
@@ -236,17 +279,17 @@ export function ContractClient({ employeeProfileId, initialContracts }: Contract
                     {c.hoursPerWeek ? ` · ${c.hoursPerWeek}u/week` : ''}
                     {c.salaryGross ? ` · €${c.salaryGross.toLocaleString('nl-NL')}/mnd` : ''}
                   </div>
-                  {c.probationEndDate && new Date(c.probationEndDate) > new Date() && (
+                  {c.probationEndDate && (datePart(c.probationEndDate) ?? '') >= amsterdamDateString() && (
                     <div className="text-xs text-[#f7a247] mt-0.5">
                       Proeftijd t/m {new Date(c.probationEndDate).toLocaleDateString('nl-NL')}
                     </div>
                   )}
                 </div>
                 <div className="text-right shrink-0 ml-3">
-                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[c.status] ?? ''}`}>
-                    {c.status === 'ACTIVE' ? 'Actief' : c.status === 'EXPIRED' ? 'Verlopen' : c.status === 'TERMINATED' ? 'Beëindigd' : c.status}
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[status] ?? ''}`}>
+                    {status === 'ACTIVE' ? 'Actief' : status === 'EXPIRED' ? 'Verlopen' : status === 'TERMINATED' ? 'Beëindigd' : status === 'PENDING' ? 'Toekomstig' : status}
                   </span>
-                  {daysLeft !== null && daysLeft <= 60 && daysLeft >= 0 && (
+                  {status === 'ACTIVE' && daysLeft !== null && daysLeft <= 60 && daysLeft >= 0 && (
                     <div className={`text-xs mt-1 ${daysLeft <= 30 ? 'text-red-400' : 'text-[#f7a247]'}`}>
                       {daysLeft === 0 ? 'Verloopt vandaag' : `${daysLeft}d`}
                     </div>

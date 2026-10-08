@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
+import { getSession, signOAuthState } from '@/lib/auth';
 import { getGoogleAuthUrl } from '@/lib/google-calendar';
 
 /**
  * GET /api/integrations/google/connect
  * Redirects the authenticated user to Google's OAuth consent screen.
- * The state param encodes the userId so we can save the token after callback.
+ * De state is een ondertekend, 10 minuten geldig token met de userId,
+ * zodat de callback niet met een vervalste userId kan worden aangeroepen.
  */
 export async function GET() {
   const session = await getSession();
@@ -18,6 +19,7 @@ export async function GET() {
     );
   }
 
-  const url = getGoogleAuthUrl(session.userId);
+  const state = await signOAuthState(session.userId, 'google-calendar');
+  const url = getGoogleAuthUrl(state);
   return NextResponse.redirect(url);
 }

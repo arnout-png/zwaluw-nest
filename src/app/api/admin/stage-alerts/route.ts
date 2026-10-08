@@ -53,14 +53,19 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
 
   const rows = [
+    // 0 = uit; maximaal een jaar
     { key: 'STAGE_ALERT_NEW_LEAD', value: String(Number(body.NEW_LEAD) || 0) },
     { key: 'STAGE_ALERT_PRE_SCREENING', value: String(Number(body.PRE_SCREENING) || 0) },
     { key: 'STAGE_ALERT_SCREENING_DONE', value: String(Number(body.SCREENING_DONE) || 0) },
     { key: 'STAGE_ALERT_INTERVIEW', value: String(Number(body.INTERVIEW) || 0) },
     { key: 'STAGE_ALERT_RESERVE_BANK', value: String(Number(body.RESERVE_BANK) || 0) },
-  ].map((r) => ({ ...r, updatedAt: new Date().toISOString() }));
+  ].map((r) => ({ ...r, value: String(Math.min(Math.max(Math.round(Number(r.value)) || 0, 0), 365)), updatedAt: new Date().toISOString() }));
 
-  await supabaseAdmin.from('AppSetting').upsert(rows, { onConflict: 'key' });
+  const { error } = await supabaseAdmin.from('AppSetting').upsert(rows, { onConflict: 'key' });
+  if (error) {
+    console.error('POST stage-alerts error:', error.message);
+    return NextResponse.json({ error: 'Opslaan mislukt.' }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true });
 }

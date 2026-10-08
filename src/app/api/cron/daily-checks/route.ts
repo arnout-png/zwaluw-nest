@@ -6,96 +6,158 @@ import {
   sendLeadSilenceEmail,
   isEmailConfigured,
 } from '@/lib/email';
+import { amsterdamDateString, addDays, datePart, daysBetween, parseDbTimestamp } from '@/lib/dates';
+import { POORTWACHTER_MILESTONES } from '@/lib/verzuim';
+
+export const maxDuration = 300;
 
 /**
- * POST /api/cron/daily-checks
- * Runs every day at 07:00 (configured in vercel.json).
- * Protected by CRON_SECRET header.
+ * GET /api/cron/daily-checks
+ * Draait elke dag om 07:00 UTC (vercel.json). Vercel Cron roept routes aan met
+ * GET en `Authorization: Bearer $CRON_SECRET`. Tot oktober 2026 exporteerde
+ * deze route alleen POST, waardoor elke cron-aanroep een 405 kreeg en geen
+ * enkele controle (contracten, poortwachter, AVG, fase-alerts, stilte-alarm)
+ * ooit heeft gedraaid.
+ *
+ * Elke controle is idempotent: dubbel draaien op één dag levert geen dubbele
+ * meldingen op, en een gemiste dag wordt de volgende run ingehaald.
  */
+export async function GET(request: NextRequest) {
+  return runDailyChecks(request);
+}
+
+/** Handmatig starten (zelfde beveiliging). */
 export async function POST(request: NextRequest) {
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  return runDailyChecks(request);
+}
+
+function isAuthorized(request: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false; // fail closed: zonder geheim kan niemand dit starten
+  return request.headers.get('authorization') === `Bearer ${secret}`;
+}
+
+type UserLite = { id: string; name: string; email: string };
+type NotificationRow = {
+  userId: string;
+  type: string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  linkUrl: string;
+};
+
+async function insertNotifications(rows: NotificationRow[]) {
+  if (rows.length === 0) return;
+  const { error } = await supabaseAdmin.from('Notification').insert(rows);
+  if (error) console.error('[cron/daily-checks] Notification insert failed:', error.message);
+}
+
+/** EmployeeProfile.id → gebruiker (alleen bestaande profielen/gebruikers). */
+async function mapProfilesToUsers(profileIds: string[]): Promise<Record<string, UserLite>> {
+  const result: Record<string, UserLite> = {};
+  if (profileIds.length === 0) return result;
+  const { data: eps } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', profileIds);
+  const profiles = (eps ?? []) as { id: string; userId: string }[];
+  if (profiles.length === 0) return result;
+  const { data: users } = await supabaseAdmin
+    .from('User')
+    .select('id, name, email')
+    .in('id', profiles.map((p) => p.userId));
+  const uMap = Object.fromEntries(((users ?? []) as UserLite[]).map((u) => [u.id, u]));
+  for (const ep of profiles) {
+    if (uMap[ep.userId]) result[ep.id] = uMap[ep.userId];
+  }
+  return result;
+}
+
+async function runDailyChecks(request: NextRequest) {
+  if (!isAuthorized(request)) {
     return NextResponse.json({ error: 'Onbevoegd.' }, { status: 401 });
   }
 
   const results: string[] = [];
+  const now = new Date();
+  const today = amsterdamDateString(now);
+  const emailOn = isEmailConfigured() && !!process.env.ADMIN_EMAIL;
 
-  // ─── Fetch admin users for notifications ──────────────────────────────────
-  const { data: admins } = await supabaseAdmin
+  // ─── Admins + actieve gebruikers ─────────────────────────────────────────
+  const { data: activeUsers } = await supabaseAdmin
     .from('User')
-    .select('id, email, name')
-    .eq('role', 'ADMIN')
+    .select('id, role')
     .eq('isActive', true);
+  const activeUserIds = new Set(((activeUsers ?? []) as { id: string }[]).map((u) => u.id));
+  const adminIds = ((activeUsers ?? []) as { id: string; role: string }[])
+    .filter((u) => u.role === 'ADMIN')
+    .map((u) => u.id);
 
-  const adminIds = (admins ?? []).map((a: { id: string }) => a.id);
+  // ─── 1. Contracten ───────────────────────────────────────────────────────
+  // 1a. Verlopen contracten op EXPIRED zetten (einddatum vóór vandaag).
+  {
+    const { data: expired, error } = await supabaseAdmin
+      .from('Contract')
+      .update({ status: 'EXPIRED', updatedAt: new Date().toISOString() })
+      .eq('status', 'ACTIVE')
+      .not('endDate', 'is', null)
+      .lt('endDate', today)
+      .select('id');
+    if (error) console.error('[cron/daily-checks] Contract expire failed:', error.message);
+    if (expired?.length) results.push(`${expired.length} contract(en) op verlopen gezet`);
+  }
 
-  // ─── 1. Contract expiry checks ────────────────────────────────────────────
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
-
-  for (const threshold of [30, 60]) {
-    const targetDate = new Date(today.getTime() + threshold * 24 * 60 * 60 * 1000);
-    const targetStr = targetDate.toISOString().split('T')[0];
-
-    // Get contracts expiring soon
+  // 1b. Signalen bij 60, 30, 14 en 7 dagen vóór de einddatum — elk signaal één keer.
+  {
+    const SIGNALS = [7, 14, 30, 60];
+    const until = addDays(today, 60);
     const { data: contracts } = await supabaseAdmin
       .from('Contract')
       .select('id, employeeProfileId, endDate')
       .eq('status', 'ACTIVE')
       .not('endDate', 'is', null)
-      .gte('endDate', todayStr)
-      .lte('endDate', targetStr);
+      .gte('endDate', today)
+      .lte('endDate', `${until}T23:59:59`);
 
-    // Enrich with employee names
-    const cEpIds = [...new Set((contracts ?? []).map((c: Record<string, unknown>) => c.employeeProfileId as string).filter(Boolean))];
-    const cEpUserMap: Record<string, { id: string; name: string; email: string }> = {};
-    if (cEpIds.length) {
-      const { data: eps } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', cEpIds);
-      if (eps?.length) {
-        const uIds = (eps as { userId: string }[]).map(e => e.userId);
-        const { data: users } = await supabaseAdmin.from('User').select('id, name, email').in('id', uIds);
-        const uMap = Object.fromEntries(((users ?? []) as { id: string; name: string; email: string }[]).map(u => [u.id, u]));
-        for (const ep of eps as { id: string; userId: string }[]) cEpUserMap[ep.id] = uMap[ep.userId] ?? { id: ep.userId, name: 'Onbekend', email: '' };
-      }
-    }
+    const rows = (contracts ?? []) as { id: string; employeeProfileId: string; endDate: string }[];
+    const userByProfile = await mapProfilesToUsers([...new Set(rows.map((c) => c.employeeProfileId))]);
 
-    for (const contract of contracts ?? []) {
-      const user = cEpUserMap[(contract as Record<string, unknown>).employeeProfileId as string] ?? undefined;
-      if (!user) continue;
+    const { data: sent } = await supabaseAdmin
+      .from('Notification')
+      .select('message')
+      .eq('type', 'CONTRACT_EXPIRING')
+      .gte('createdAt', addDays(today, -75));
+    const sentMessages = ((sent ?? []) as { message: string }[]).map((n) => n.message);
 
-      const daysLeft = Math.ceil(
-        (new Date(contract.endDate as string).getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
-      );
+    for (const contract of rows) {
+      const user = userByProfile[contract.employeeProfileId];
+      const end = datePart(contract.endDate);
+      if (!user || !end) continue;
 
-      // Deduplicate
-      const { count } = await supabaseAdmin
-        .from('Notification')
-        .select('id', { count: 'exact', head: true })
-        .eq('type', 'CONTRACT_EXPIRING')
-        .like('message', `%${contract.id}%`)
-        .gte('createdAt', todayStr + 'T00:00:00');
+      const daysLeft = daysBetween(today, end);
+      const signal = SIGNALS.find((s) => daysLeft <= s);
+      if (signal === undefined) continue;
 
-      if ((count ?? 0) > 0) continue;
+      const tag = `(ID: ${contract.id}, signaal ${signal}d)`;
+      if (sentMessages.some((m) => m.includes(tag))) continue;
 
-      const notifRows = adminIds.map((adminId: string) => ({
+      const endNL = new Date(`${end}T12:00:00Z`).toLocaleDateString('nl-NL', {
+        day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Amsterdam',
+      });
+
+      await insertNotifications(adminIds.map((adminId) => ({
         userId: adminId,
         type: 'CONTRACT_EXPIRING',
         title: `Contract verloopt over ${daysLeft} dagen`,
-        message: `Contract van ${user.name} (ID: ${contract.id}) verloopt over ${daysLeft} dagen op ${contract.endDate}.`,
+        message: `Contract van ${user.name} verloopt over ${daysLeft} dagen op ${endNL}. ${tag}`,
         isRead: false,
         linkUrl: '/dashboard/personeel',
-      }));
+      })));
 
-      if (notifRows.length > 0) {
-        await supabaseAdmin.from('Notification').insert(notifRows);
-      }
-
-      if (threshold === 30 && isEmailConfigured() && process.env.ADMIN_EMAIL) {
+      if (signal <= 30 && emailOn) {
         try {
           await sendContractExpiryEmail({
-            to: process.env.ADMIN_EMAIL,
+            to: process.env.ADMIN_EMAIL!,
             employeeName: user.name,
-            endDate: contract.endDate as string,
+            endDate: endNL,
             daysLeft,
           });
         } catch (err) {
@@ -103,235 +165,200 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      results.push(`Contract ${contract.id} (${user.name}): ${daysLeft} dagen`);
+      results.push(`Contract ${user.name}: ${daysLeft} dagen (signaal ${signal}d)`);
     }
   }
 
-  // ─── 2. Poortwachter week checks ─────────────────────────────────────────
-  const poortwachterMilestones = [
-    {
-      week: 6,
-      days: 42,
-      field: 'week6ProblemAnalysis',
-      action: 'Plan de probleemanalyse en het plan van aanpak (UWV eis week 8).',
-    },
-    {
-      week: 8,
-      days: 56,
-      field: 'week8ActionPlan',
-      action: 'Stel het plan van aanpak op samen met de medewerker (verplicht voor UWV).',
-    },
-    {
-      week: 42,
-      days: 294,
-      field: 'week42UwvNotification',
-      action: 'Dien de ziekmelding in bij het UWV. Dit is wettelijk verplicht uiterlijk in week 42.',
-    },
-  ];
+  // ─── 2. Wet verbetering poortwachter ─────────────────────────────────────
+  // Herinnering één week vóór elke deadline, en (als het te laat is) alsnog
+  // één keer. Voorheen alleen op exact dag 42/56/294 (+1): één gemiste cron-run
+  // en de melding kwam nooit.
+  {
+    const { data: activeSick } = await supabaseAdmin
+      .from('SickTracker')
+      .select('id, employeeProfileId, sicknessStartDate, sicknessEndDate, week6ProblemAnalysis, week8ActionPlan, week42UwvNotification')
+      .or(`sicknessEndDate.is.null,sicknessEndDate.gte.${today}`);
 
-  const { data: activeSick } = await supabaseAdmin
-    .from('SickTracker')
-    .select('id, employeeProfileId, sicknessStartDate, week6ProblemAnalysis, week8ActionPlan, week42UwvNotification')
-    .is('sicknessEndDate', null);
+    type SickRow = {
+      id: string; employeeProfileId: string; sicknessStartDate: string; sicknessEndDate: string | null;
+      week6ProblemAnalysis: boolean; week8ActionPlan: boolean; week42UwvNotification: boolean;
+    };
+    const trackers = (activeSick ?? []) as SickRow[];
+    const userByProfile = await mapProfilesToUsers([...new Set(trackers.map((s) => s.employeeProfileId))]);
 
-  // Enrich sick trackers with employee names
-  const sEpIds = [...new Set((activeSick ?? []).map((s: Record<string, unknown>) => s.employeeProfileId as string).filter(Boolean))];
-  const sEpUserMap: Record<string, { id: string; name: string; email: string }> = {};
-  if (sEpIds.length) {
-    const { data: eps } = await supabaseAdmin.from('EmployeeProfile').select('id, userId').in('id', sEpIds);
-    if (eps?.length) {
-      const uIds = (eps as { userId: string }[]).map(e => e.userId);
-      const { data: users } = await supabaseAdmin.from('User').select('id, name, email').in('id', uIds);
-      const uMap = Object.fromEntries(((users ?? []) as { id: string; name: string; email: string }[]).map(u => [u.id, u]));
-      for (const ep of eps as { id: string; userId: string }[]) sEpUserMap[ep.id] = uMap[ep.userId] ?? { id: ep.userId, name: 'Onbekend', email: '' };
-    }
-  }
+    const { data: sent } = await supabaseAdmin
+      .from('Notification')
+      .select('title, message')
+      .eq('type', 'SICK_REPORT')
+      .like('title', 'Poortwachter%');
+    const sentRows = (sent ?? []) as { title: string; message: string }[];
 
-  for (const sick of activeSick ?? []) {
-    const user = sEpUserMap[(sick as Record<string, unknown>).employeeProfileId as string] ?? undefined;
-    if (!user) continue;
+    for (const sick of trackers) {
+      const user = userByProfile[sick.employeeProfileId];
+      const start = datePart(sick.sicknessStartDate);
+      if (!user || !start) continue;
 
-    const sickStart = new Date(sick.sicknessStartDate as string);
-    const daysIll = Math.floor((today.getTime() - sickStart.getTime()) / (1000 * 60 * 60 * 24));
-
-    for (const milestone of poortwachterMilestones) {
-      if (daysIll < milestone.days || daysIll > milestone.days + 1) continue;
-      if ((sick as Record<string, unknown>)[milestone.field]) continue;
-
-      const { count } = await supabaseAdmin
-        .from('Notification')
-        .select('id', { count: 'exact', head: true })
-        .like('title', `%Week ${milestone.week}%`)
-        .like('message', `%${sick.id}%`)
-        .gte('createdAt', todayStr + 'T00:00:00');
-
-      if ((count ?? 0) > 0) continue;
-
-      const sickDateNL = new Date(sick.sicknessStartDate as string).toLocaleDateString('nl-NL', {
-        day: 'numeric', month: 'long', year: 'numeric',
+      const daysIll = daysBetween(start, today);
+      const sickDateNL = new Date(`${start}T12:00:00Z`).toLocaleDateString('nl-NL', {
+        day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Amsterdam',
       });
 
-      const notifRows = adminIds.map((adminId: string) => ({
-        userId: adminId,
-        type: 'SICK_REPORT',
-        title: `Poortwachter Week ${milestone.week} — ${user.name}`,
-        message: `${user.name} is ${daysIll} dagen ziek (ID: ${sick.id}). Actie vereist: ${milestone.action}`,
-        isRead: false,
-        linkUrl: '/dashboard/verzuim',
-      }));
+      for (const milestone of POORTWACHTER_MILESTONES) {
+        if (daysIll < milestone.remindFromDay || sick[milestone.field]) continue;
 
-      if (notifRows.length > 0) {
-        await supabaseAdmin.from('Notification').insert(notifRows);
-      }
+        const already = sentRows.some(
+          (n) => n.title.includes(`Week ${milestone.week} `) && n.message.includes(`(ID: ${sick.id})`)
+        );
+        if (already) continue;
 
-      if (isEmailConfigured() && process.env.ADMIN_EMAIL) {
-        try {
-          await sendPoortwachterEmail({
-            to: process.env.ADMIN_EMAIL,
-            employeeName: user.name,
-            week: milestone.week,
-            sickSince: sickDateNL,
-            action: milestone.action,
-          });
-        } catch (err) {
-          console.error('Poortwachter email failed:', err);
+        const overdue = daysIll > milestone.deadlineDay;
+        const title = `Poortwachter Week ${milestone.week} ${overdue ? '(te laat) ' : ''}— ${user.name}`;
+
+        await insertNotifications(adminIds.map((adminId) => ({
+          userId: adminId,
+          type: 'SICK_REPORT',
+          title,
+          message: `${user.name} is sinds ${sickDateNL} ziek (${daysIll} dagen). ${milestone.label}: ${milestone.action} (ID: ${sick.id})`,
+          isRead: false,
+          linkUrl: '/dashboard/verzuim',
+        })));
+
+        if (emailOn) {
+          try {
+            await sendPoortwachterEmail({
+              to: process.env.ADMIN_EMAIL!,
+              employeeName: user.name,
+              week: milestone.week,
+              sickSince: sickDateNL,
+              action: milestone.action,
+            });
+          } catch (err) {
+            console.error('Poortwachter email failed:', err);
+          }
         }
+
+        results.push(`Poortwachter week ${milestone.week}${overdue ? ' (te laat)' : ''}: ${user.name}`);
       }
-
-      results.push(`Poortwachter week ${milestone.week}: ${user.name}`);
     }
   }
 
-  // ─── 3. AVG consent expiry (3 days) ──────────────────────────────────────
-  const in3Days = new Date(today.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString();
-
-  const { data: expiringConsent } = await supabaseAdmin
-    .from('Candidate')
-    .select('id, name, consentExpiresAt, status')
-    .not('status', 'in', '("HIRED","REJECTED")')
-    .not('consentExpiresAt', 'is', null)
-    .gte('consentExpiresAt', today.toISOString())
-    .lte('consentExpiresAt', in3Days);
-
-  for (const candidate of expiringConsent ?? []) {
-    const { count } = await supabaseAdmin
-      .from('Notification')
-      .select('id', { count: 'exact', head: true })
-      .like('message', `%${candidate.id}%`)
-      .gte('createdAt', todayStr + 'T00:00:00');
-
-    if ((count ?? 0) > 0) continue;
-
-    const notifRows = adminIds.map((adminId: string) => ({
-      userId: adminId,
-      type: 'SYSTEM',
-      title: 'AVG toestemming verloopt binnenkort',
-      message: `AVG toestemming van kandidaat ${(candidate as { name: string }).name} (${candidate.id}) verloopt binnenkort. Verlengen of verwijderen.`,
-      isRead: false,
-      linkUrl: '/dashboard/werving',
-    }));
-
-    if (notifRows.length > 0) {
-      await supabaseAdmin.from('Notification').insert(notifRows);
-    }
-
-    results.push(`AVG consent: ${(candidate as { name: string }).name}`);
-  }
-
-  // ─── 4. Stage duration alerts ─────────────────────────────────────────────
-  const stageKeys = [
-    'STAGE_ALERT_NEW_LEAD',
-    'STAGE_ALERT_PRE_SCREENING',
-    'STAGE_ALERT_SCREENING_DONE',
-    'STAGE_ALERT_INTERVIEW',
-    'STAGE_ALERT_RESERVE_BANK',
-  ];
-
-  const stageDefaults: Record<string, number> = {
-    STAGE_ALERT_NEW_LEAD: 3,
-    STAGE_ALERT_PRE_SCREENING: 5,
-    STAGE_ALERT_SCREENING_DONE: 3,
-    STAGE_ALERT_INTERVIEW: 7,
-    STAGE_ALERT_RESERVE_BANK: 30,
-  };
-
-  const stageStatusMap: Record<string, string> = {
-    STAGE_ALERT_NEW_LEAD: 'NEW_LEAD',
-    STAGE_ALERT_PRE_SCREENING: 'PRE_SCREENING',
-    STAGE_ALERT_SCREENING_DONE: 'SCREENING_DONE',
-    STAGE_ALERT_INTERVIEW: 'INTERVIEW',
-    STAGE_ALERT_RESERVE_BANK: 'RESERVE_BANK',
-  };
-
-  const stageLabels: Record<string, string> = {
-    NEW_LEAD: 'Nieuw',
-    PRE_SCREENING: 'Pre-screening',
-    SCREENING_DONE: 'Screening klaar',
-    INTERVIEW: 'Interview',
-    RESERVE_BANK: 'Reserve Bank',
-  };
-
-  const { data: thresholdRows } = await supabaseAdmin
-    .from('AppSetting')
-    .select('key, value')
-    .in('key', stageKeys);
-
-  const thresholds: Record<string, number> = { ...stageDefaults };
-  for (const row of thresholdRows ?? []) {
-    thresholds[row.key] = Number(row.value) || 0;
-  }
-
-  for (const key of stageKeys) {
-    const days = thresholds[key];
-    if (!days || days <= 0) continue;
-
-    const status = stageStatusMap[key];
-    const cutoff = new Date(today.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
-
-    const { data: staleCandidates } = await supabaseAdmin
+  // ─── 3. AVG: toestemming verloopt binnen 3 dagen ─────────────────────────
+  {
+    const in3Days = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: expiringConsent } = await supabaseAdmin
       .from('Candidate')
-      .select('id, name, status, assignedToId, stageUpdatedAt, updatedAt')
-      .eq('status', status)
-      .or(`stageUpdatedAt.lte.${cutoff},and(stageUpdatedAt.is.null,updatedAt.lte.${cutoff})`);
+      .select('id, name, consentExpiresAt, status')
+      .not('status', 'in', '("HIRED","REJECTED")')
+      .is('deletedAt', null)
+      .is('dataDeletedAt', null)
+      .not('consentExpiresAt', 'is', null)
+      .gte('consentExpiresAt', now.toISOString())
+      .lte('consentExpiresAt', in3Days);
 
-    for (const candidate of staleCandidates ?? []) {
-      const cand = candidate as {
-        id: string; name: string; status: string;
-        assignedToId: string | null; stageUpdatedAt: string | null; updatedAt: string;
-      };
-
-      // Dedup: skip if already notified today for this candidate
-      const { count: existingCount } = await supabaseAdmin
+    const candidates = (expiringConsent ?? []) as { id: string; name: string }[];
+    if (candidates.length > 0) {
+      const { data: sent } = await supabaseAdmin
         .from('Notification')
-        .select('id', { count: 'exact', head: true })
-        .eq('type', 'CANDIDATE_STAGE_ALERT')
-        .eq('linkUrl', `/dashboard/werving/${cand.id}`)
-        .gte('createdAt', todayStr + 'T00:00:00');
+        .select('message')
+        .eq('type', 'SYSTEM')
+        .like('title', 'AVG toestemming%')
+        .gte('createdAt', addDays(today, -7));
+      const sentMessages = ((sent ?? []) as { message: string }[]).map((n) => n.message);
 
-      if ((existingCount ?? 0) > 0) continue;
+      for (const candidate of candidates) {
+        if (sentMessages.some((m) => m.includes(`(${candidate.id})`))) continue;
 
-      const since = cand.stageUpdatedAt ?? cand.updatedAt;
-      const daysInStage = Math.floor(
-        (today.getTime() - new Date(since).getTime()) / (1000 * 60 * 60 * 24)
-      );
+        await insertNotifications(adminIds.map((adminId) => ({
+          userId: adminId,
+          type: 'SYSTEM',
+          title: 'AVG toestemming verloopt binnenkort',
+          message: `AVG toestemming van kandidaat ${candidate.name} (${candidate.id}) verloopt binnenkort. Verlengen of verwijderen.`,
+          isRead: false,
+          linkUrl: `/dashboard/werving/${candidate.id}`,
+        })));
 
-      const label = stageLabels[status] ?? status;
-      const recipientIds: string[] = cand.assignedToId ? [cand.assignedToId] : adminIds;
-
-      const notifRows = recipientIds.map((uid: string) => ({
-        userId: uid,
-        type: 'CANDIDATE_STAGE_ALERT',
-        title: `Kandidaat al ${daysInStage} dagen in "${label}"`,
-        message: `${cand.name} staat al ${daysInStage} dagen in de fase "${label}". Actie vereist.`,
-        isRead: false,
-        linkUrl: `/dashboard/werving/${cand.id}`,
-      }));
-
-      if (notifRows.length > 0) {
-        await supabaseAdmin.from('Notification').insert(notifRows);
+        results.push(`AVG consent: ${candidate.name}`);
       }
+    }
+  }
 
-      results.push(`Stage alert: ${cand.name} (${daysInStage} dagen in ${label})`);
+  // ─── 4. Fase-alerts: kandidaat staat te lang in dezelfde fase ────────────
+  // Hooguit één alert per kandidaat per 7 dagen, en nooit één van vóór de
+  // laatste fasewissel. Verwijderde kandidaten (prullenbak) tellen niet mee.
+  {
+    const stageDefaults: Record<string, number> = {
+      NEW_LEAD: 3,
+      PRE_SCREENING: 5,
+      SCREENING_DONE: 3,
+      INTERVIEW: 7,
+      RESERVE_BANK: 30,
+    };
+    const stageLabels: Record<string, string> = {
+      NEW_LEAD: 'Nieuw',
+      PRE_SCREENING: 'Pre-screening',
+      SCREENING_DONE: 'Screening klaar',
+      INTERVIEW: 'Interview',
+      RESERVE_BANK: 'Reserve Bank',
+    };
+
+    const { data: thresholdRows } = await supabaseAdmin
+      .from('AppSetting')
+      .select('key, value')
+      .in('key', Object.keys(stageDefaults).map((s) => `STAGE_ALERT_${s}`));
+
+    const thresholds: Record<string, number> = { ...stageDefaults };
+    for (const row of (thresholdRows ?? []) as { key: string; value: string }[]) {
+      thresholds[row.key.replace('STAGE_ALERT_', '')] = Number(row.value) || 0;
+    }
+
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const { data: recentAlerts } = await supabaseAdmin
+      .from('Notification')
+      .select('linkUrl, createdAt')
+      .eq('type', 'CANDIDATE_STAGE_ALERT')
+      .like('title', 'Kandidaat al %')
+      .gte('createdAt', weekAgo.toISOString());
+    const lastAlertAt = new Map<string, number>();
+    for (const n of (recentAlerts ?? []) as { linkUrl: string | null; createdAt: string }[]) {
+      const t = parseDbTimestamp(n.createdAt)?.getTime() ?? 0;
+      if (n.linkUrl && t > (lastAlertAt.get(n.linkUrl) ?? 0)) lastAlertAt.set(n.linkUrl, t);
+    }
+
+    for (const [status, days] of Object.entries(thresholds)) {
+      if (!days || days <= 0) continue;
+      const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+
+      const { data: staleCandidates } = await supabaseAdmin
+        .from('Candidate')
+        .select('id, name, status, assignedToId, stageUpdatedAt, updatedAt')
+        .eq('status', status)
+        .is('deletedAt', null)
+        .or(`stageUpdatedAt.lte.${cutoff},and(stageUpdatedAt.is.null,updatedAt.lte.${cutoff})`);
+
+      for (const cand of (staleCandidates ?? []) as {
+        id: string; name: string; assignedToId: string | null; stageUpdatedAt: string | null; updatedAt: string;
+      }[]) {
+        const link = `/dashboard/werving/${cand.id}`;
+        const since = parseDbTimestamp(cand.stageUpdatedAt ?? cand.updatedAt) ?? now;
+        const previous = lastAlertAt.get(link);
+        if (previous && previous >= Math.max(since.getTime(), weekAgo.getTime())) continue;
+
+        const daysInStage = Math.floor((now.getTime() - since.getTime()) / (1000 * 60 * 60 * 24));
+        const label = stageLabels[status] ?? status;
+        const recipientIds =
+          cand.assignedToId && activeUserIds.has(cand.assignedToId) ? [cand.assignedToId] : adminIds;
+
+        await insertNotifications(recipientIds.map((uid) => ({
+          userId: uid,
+          type: 'CANDIDATE_STAGE_ALERT',
+          title: `Kandidaat al ${daysInStage} dagen in "${label}"`,
+          message: `${cand.name} staat al ${daysInStage} dagen in de fase "${label}". Actie vereist.`,
+          isRead: false,
+          linkUrl: link,
+        })));
+
+        results.push(`Stage alert: ${cand.name} (${daysInStage} dagen in ${label})`);
+      }
     }
   }
 
@@ -340,81 +367,94 @@ export async function POST(request: NextRequest) {
   // het duurde drie maanden voor dat opviel. Deze check slaat aan zodra er
   // LEAD_SILENCE_DAYS dagen geen enkele nieuwe kandidaat is binnengekomen,
   // maar alleen zolang er nog een vacature openstaat.
-  const silenceDays = Number(process.env.LEAD_SILENCE_DAYS ?? 7);
+  {
+    const silenceDays = Number(process.env.LEAD_SILENCE_DAYS ?? 7);
 
-  const { count: openVacancies } = await supabaseAdmin
-    .from('JobOpening')
-    .select('id', { count: 'exact', head: true })
-    .eq('isActive', true);
+    const { count: openVacancies } = await supabaseAdmin
+      .from('JobOpening')
+      .select('id', { count: 'exact', head: true })
+      .eq('isActive', true);
 
-  if ((openVacancies ?? 0) > 0) {
-    const { data: newest } = await supabaseAdmin
-      .from('Candidate')
-      .select('createdAt')
-      .order('createdAt', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    if ((openVacancies ?? 0) > 0) {
+      // Alleen kandidaten die niet in de prullenbak staan: in september 2026
+      // kwamen 552 oude leads opnieuw binnen via de sheet-sync (allemaal
+      // verwijderd); die maskeerden dat er sinds juli geen echte sollicitant was.
+      const { data: newest } = await supabaseAdmin
+        .from('Candidate')
+        .select('createdAt')
+        .is('deletedAt', null)
+        .order('createdAt', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    const lastLeadAt = newest?.createdAt ? new Date(newest.createdAt as string) : null;
-    const daysQuiet = lastLeadAt
-      ? Math.floor((today.getTime() - lastLeadAt.getTime()) / (1000 * 60 * 60 * 24))
-      : null;
+      const lastLeadAt = parseDbTimestamp(newest?.createdAt as string | undefined);
+      const daysQuiet = lastLeadAt
+        ? Math.floor((now.getTime() - lastLeadAt.getTime()) / (1000 * 60 * 60 * 24))
+        : null;
 
-    if (daysQuiet !== null && daysQuiet >= silenceDays) {
-      // Hoogstens één melding per week, anders wordt het dagelijkse ruis.
-      const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const { count: recentAlert } = await supabaseAdmin
-        .from('Notification')
-        .select('id', { count: 'exact', head: true })
-        .eq('type', 'SYSTEM')
-        .like('title', 'Geen nieuwe kandidaten%')
-        .gte('createdAt', weekAgo);
+      if (lastLeadAt && daysQuiet !== null && daysQuiet >= silenceDays) {
+        // Hoogstens één melding per week, anders wordt het dagelijkse ruis.
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const { count: recentAlert } = await supabaseAdmin
+          .from('Notification')
+          .select('id', { count: 'exact', head: true })
+          .eq('type', 'SYSTEM')
+          .like('title', 'Geen nieuwe kandidaten%')
+          .gte('createdAt', weekAgo);
 
-      if ((recentAlert ?? 0) === 0) {
-        const lastLeadNL = lastLeadAt!.toLocaleDateString('nl-NL', {
-          day: 'numeric', month: 'long', year: 'numeric',
-        });
+        if ((recentAlert ?? 0) === 0) {
+          const lastLeadNL = lastLeadAt.toLocaleDateString('nl-NL', {
+            day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Amsterdam',
+          });
 
-        const notifRows = adminIds.map((adminId: string) => ({
-          userId: adminId,
-          type: 'SYSTEM',
-          title: `Geen nieuwe kandidaten in ${daysQuiet} dagen`,
-          message:
-            `De laatste kandidaat kwam binnen op ${lastLeadNL}, ${daysQuiet} dagen geleden, ` +
-            `terwijl er ${openVacancies} vacature(s) openstaan. De campagnes sturen verkeer naar ` +
-            `de vacaturepagina's: controleer of de advertenties nog uitleveren, of de Meta Pixel ` +
-            `nog SubmitApplication-events registreert, en of het sollicitatieformulier werkt.`,
-          isRead: false,
-          linkUrl: '/dashboard/werving',
-        }));
+          await insertNotifications(adminIds.map((adminId) => ({
+            userId: adminId,
+            type: 'SYSTEM',
+            title: `Geen nieuwe kandidaten in ${daysQuiet} dagen`,
+            message:
+              `De laatste kandidaat kwam binnen op ${lastLeadNL}, ${daysQuiet} dagen geleden, ` +
+              `terwijl er ${openVacancies} vacature(s) openstaan. De campagnes sturen verkeer naar ` +
+              `de vacaturepagina's: controleer of de advertenties nog uitleveren, of de Meta Pixel ` +
+              `nog SubmitApplication-events registreert, en of het sollicitatieformulier werkt.`,
+            isRead: false,
+            linkUrl: '/dashboard/werving',
+          })));
 
-        if (notifRows.length > 0) {
-          await supabaseAdmin.from('Notification').insert(notifRows);
-        }
-
-        if (isEmailConfigured() && process.env.ADMIN_EMAIL) {
-          try {
-            await sendLeadSilenceEmail({
-              to: process.env.ADMIN_EMAIL,
-              daysQuiet,
-              lastLeadDate: lastLeadNL,
-              openVacancies: openVacancies ?? 0,
-              portalUrl: `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/dashboard/werving`,
-            });
-          } catch (err) {
-            console.error('Lead silence email failed:', err);
+          if (emailOn) {
+            try {
+              await sendLeadSilenceEmail({
+                to: process.env.ADMIN_EMAIL!,
+                daysQuiet,
+                lastLeadDate: lastLeadNL,
+                openVacancies: openVacancies ?? 0,
+                portalUrl: new URL('/dashboard/werving', publicBaseUrl(request)).toString(),
+              });
+            } catch (err) {
+              console.error('Lead silence email failed:', err);
+            }
           }
-        }
 
-        results.push(`Stilte-alarm: ${daysQuiet} dagen geen nieuwe kandidaten`);
+          results.push(`Stilte-alarm: ${daysQuiet} dagen geen nieuwe kandidaten`);
+        }
       }
     }
   }
 
+  // Alleen het aantal loggen: de items bevatten namen (persoonsgegevens).
+  console.log(`[cron/daily-checks] ${results.length} signalen`);
   return NextResponse.json({
     ok: true,
     processed: results.length,
     items: results,
     ran: new Date().toISOString(),
   });
+}
+
+/** Publieke basis-URL voor links in e-mails (nooit localhost of een vercel.app-adres). */
+function publicBaseUrl(request: NextRequest): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL;
+  if (configured && !/localhost|vercel\.app/.test(configured)) return configured;
+  const host = new URL(request.url);
+  if (!/localhost|vercel\.app/.test(host.hostname)) return host.origin;
+  return 'https://www.werkenbijzwaluwcomfortsanitair.nl';
 }

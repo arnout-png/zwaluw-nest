@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
+import { logAudit, getIp } from '@/lib/audit';
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -23,6 +24,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const text = String(content || description);
+  if (String(title).length > 200 || text.length > 10_000) {
+    return NextResponse.json({ error: 'Titel of inhoud is te lang.' }, { status: 400 });
+  }
+
   const validTypes = ['NOTE', 'WARNING', 'COMPLIMENT', 'INCIDENT', 'PERFORMANCE', 'OTHER'];
   if (!validTypes.includes(type)) {
     return NextResponse.json({ error: 'Ongeldig type.' }, { status: 400 });
@@ -35,7 +41,7 @@ export async function POST(request: NextRequest) {
       .from('EmployeeProfile')
       .select('id')
       .eq('userId', userId)
-      .single();
+      .maybeSingle();
     epId = ep?.id;
   }
 
@@ -60,6 +66,16 @@ export async function POST(request: NextRequest) {
     console.error('Dossier insert error:', error.message);
     return NextResponse.json({ error: 'Kan dossierentry niet aanmaken.' }, { status: 500 });
   }
+
+  // AVG: vastleggen wie een dossieraantekening maakte (zonder de inhoud te kopiëren).
+  await logAudit({
+    userId: session.userId,
+    action: 'CREATE',
+    entity: 'DossierEntry',
+    entityId: (data as { id: string }).id,
+    details: { employeeProfileId: epId, type },
+    ipAddress: getIp(request),
+  });
 
   const enriched = { ...data, loggedBy: { id: session.userId, name: session.name, role: session.role } };
   return NextResponse.json({ data: enriched }, { status: 201 });

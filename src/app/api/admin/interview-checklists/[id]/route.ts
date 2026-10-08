@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
+import { syncOrderedRows } from '@/lib/template-sync';
 
 export async function PATCH(
   request: NextRequest,
@@ -34,18 +35,30 @@ export async function PATCH(
   if (isActive !== undefined) updates.isActive = isActive;
   if (roleType !== undefined) updates.roleType = roleType ?? null;
 
-  await supabaseAdmin.from('InterviewChecklist').update(updates).eq('id', id);
+  const { error: updateError } = await supabaseAdmin.from('InterviewChecklist').update(updates).eq('id', id);
+  if (updateError) {
+    console.error('PATCH interview-checklist error:', updateError.message);
+    return NextResponse.json({ error: 'Opslaan mislukt.' }, { status: 500 });
+  }
 
+  // Punten bijwerken met behoud van ids (anders raken afgevinkte punten los)
   if (Array.isArray(items)) {
-    await supabaseAdmin.from('InterviewChecklistItem').delete().eq('checklistId', id);
-    if (items.length > 0) {
-      const rows = items.map((item: { label: string; description?: string }, i: number) => ({
-        checklistId: id,
-        label: item.label,
+    const rows = items
+      .filter((item: { label?: string }) => typeof item?.label === 'string' && item.label.trim())
+      .map((item: { label: string; description?: string }) => ({
+        label: item.label.trim(),
         description: item.description ?? null,
-        order: i + 1,
       }));
-      await supabaseAdmin.from('InterviewChecklistItem').insert(rows);
+    const { error } = await syncOrderedRows({
+      table: 'InterviewChecklistItem',
+      parentColumn: 'checklistId',
+      parentId: id,
+      textColumn: 'label',
+      rows,
+    });
+    if (error) {
+      console.error('PATCH interview-checklist items error:', error);
+      return NextResponse.json({ error: 'Checklistpunten opslaan mislukt.' }, { status: 500 });
     }
   }
 

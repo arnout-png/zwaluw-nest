@@ -4,10 +4,12 @@ import { useState } from 'react';
 import { LeaveCalendar } from '@/components/verzuim/leave-calendar';
 import { LeaveRequestForm } from '@/components/verzuim/leave-request-form';
 import type { LeaveRequest } from '@/types';
+import { amsterdamDateString, datePart } from '@/lib/dates';
 
 interface VerzuimClientProps {
   leaveRequests: LeaveRequest[];
-  role: string;
+  /** Mag verlof van anderen beoordelen (rol ADMIN/MANAGER/PLANNER of recht canManageLeave). */
+  isManager: boolean;
   userId: string;         // User.id of the logged-in user
   employeeProfileId?: string; // EmployeeProfile.id of the logged-in user
 }
@@ -32,10 +34,10 @@ function getRequesterName(req: LeaveRequest): string {
 
 export function VerzuimClient({
   leaveRequests: initialRequests,
-  role,
+  isManager,
+  userId,
   employeeProfileId,
 }: VerzuimClientProps) {
-  const isManager = role === 'ADMIN' || role === 'PLANNER';
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -43,6 +45,7 @@ export function VerzuimClient({
   const [showForm, setShowForm] = useState(false);
   const [formType, setFormType] = useState('VACATION');
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
 
   const pending = requests.filter((r) => r.status === 'PENDING');
   // My requests = requests for the current employee profile
@@ -61,6 +64,7 @@ export function VerzuimClient({
 
   async function handleApprove(id: string, status: 'APPROVED' | 'REJECTED') {
     setProcessingId(id);
+    setActionError('');
     try {
       const res = await fetch(`/api/leave/${id}`, {
         method: 'PATCH',
@@ -69,7 +73,40 @@ export function VerzuimClient({
       });
       if (res.ok) {
         setRequests((prev) => prev.map((r) => r.id === id ? { ...r, status } : r));
+      } else {
+        const json = await res.json().catch(() => ({}));
+        setActionError(json.error ?? 'Bijwerken mislukt.');
       }
+    } catch {
+      setActionError('Kan geen verbinding maken met de server.');
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  const todayNL = amsterdamDateString();
+  const ongoingSick = requests.filter(
+    (r) => r.type === 'SICK' && (!r.endDate || (datePart(r.endDate) ?? '') >= todayNL)
+  );
+
+  async function handleRecover(id: string) {
+    setProcessingId(id);
+    setActionError('');
+    try {
+      const res = await fetch(`/api/leave/${id}/herstel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, endDate: json.lastSickDay } : r)));
+      } else {
+        const json = await res.json().catch(() => ({}));
+        setActionError(json.error ?? 'Hersteldmelding mislukt.');
+      }
+    } catch {
+      setActionError('Kan geen verbinding maken met de server.');
     } finally {
       setProcessingId(null);
     }
@@ -121,6 +158,32 @@ export function VerzuimClient({
         </div>
       )}
 
+      {isManager && ongoingSick.length > 0 && (
+        <div className="rounded-xl border border-[#f7a247]/30 bg-[#252732] p-5">
+          <h2 className="text-sm font-semibold text-white mb-3">Lopende ziekmeldingen ({ongoingSick.length})</h2>
+          <div className="space-y-2">
+            {ongoingSick.map((req) => (
+              <div key={req.id} className="flex items-center justify-between rounded-lg bg-[#1e2028] px-4 py-2.5">
+                <div>
+                  <div className="text-sm text-white">{getRequesterName(req)}</div>
+                  <div className="text-xs text-[#9ca3af]">
+                    Ziek sinds {new Date(req.startDate).toLocaleDateString('nl-NL')}
+                    {req.endDate ? ` · verwacht hersteld ${new Date(req.endDate).toLocaleDateString('nl-NL')}` : ' · lopend'}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleRecover(req.id)}
+                  disabled={processingId === req.id}
+                  className="rounded-md bg-[#68b0a6]/10 px-3 py-1 text-xs font-medium text-[#68b0a6] hover:bg-[#68b0a6]/20 disabled:opacity-50"
+                >
+                  Hersteld per vandaag
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {isManager ? (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {/* Calendar — takes 2 cols */}
@@ -155,6 +218,11 @@ export function VerzuimClient({
                 </span>
               )}
             </div>
+            {actionError && (
+              <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+                {actionError}
+              </div>
+            )}
             {pending.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 text-center">
                 <svg className="h-10 w-10 text-[#363848] mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -177,6 +245,9 @@ export function VerzuimClient({
                     {req.reason && (
                       <div className="text-xs text-[#9ca3af] mt-1 italic">{req.reason}</div>
                     )}
+                    {req.employeeProfile?.userId === userId ? (
+                      <div className="text-xs text-[#9ca3af] mt-2">Je eigen aanvraag — een collega moet deze beoordelen.</div>
+                    ) : (
                     <div className="flex gap-2 mt-2">
                       <button
                         disabled={processingId === req.id}
@@ -193,6 +264,7 @@ export function VerzuimClient({
                         Afwijzen
                       </button>
                     </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { parseDbTimestamp } from '@/lib/dates';
 import { useUser } from '@/contexts/user-context';
 import type { Notification, CandidateStatus } from '@/types';
 
@@ -117,7 +119,8 @@ export function Header({ title, breadcrumbs }: HeaderProps) {
     // Mark all as read when opening
     if (!showNotifications && unreadCount > 0) {
       fetch('/api/notifications', { method: 'PATCH' }).catch(() => {/*non-fatal*/});
-      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      // Veld heet isRead (niet read): de teller bleef anders staan tot een herlaad.
+      setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
     }
   }
 
@@ -243,17 +246,29 @@ export function Header({ title, breadcrumbs }: HeaderProps) {
                 </div>
               ) : (
                 <div className="max-h-64 overflow-y-auto">
-                  {notifications.slice(0, 5).map((n) => (
-                    <div
-                      key={n.id}
-                      className={`px-4 py-3 border-b border-[#363848] last:border-0 ${
-                        !n.isRead ? 'bg-[#68b0a6]/5' : ''
-                      }`}
-                    >
-                      <div className="text-sm font-medium text-white">{n.title}</div>
-                      <div className="text-xs text-[#9ca3af] mt-0.5">{n.message}</div>
-                    </div>
-                  ))}
+                  {notifications.slice(0, 10).map((n) => {
+                    const when = parseDbTimestamp(n.createdAt);
+                    const inner = (
+                      <>
+                        <div className="text-sm font-medium text-white">{n.title}</div>
+                        <div className="text-xs text-[#9ca3af] mt-0.5">{n.message}</div>
+                        {when && (
+                          <div className="text-[10px] text-[#6b7280] mt-1">
+                            {when.toLocaleString('nl-NL', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' })}
+                          </div>
+                        )}
+                      </>
+                    );
+                    const cls = `block px-4 py-3 border-b border-[#363848] last:border-0 ${!n.isRead ? 'bg-[#68b0a6]/5' : ''}`;
+                    // Alleen interne links volgen
+                    return n.linkUrl && n.linkUrl.startsWith('/') ? (
+                      <Link key={n.id} href={n.linkUrl} onClick={() => setShowNotifications(false)} className={`${cls} hover:bg-[#1e2028]`}>
+                        {inner}
+                      </Link>
+                    ) : (
+                      <div key={n.id} className={cls}>{inner}</div>
+                    );
+                  })}
                 </div>
               )}
             </div>

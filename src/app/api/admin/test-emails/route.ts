@@ -20,7 +20,7 @@ export async function POST() {
   if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Alleen admins.' }, { status: 403 });
 
   const to = 'arnout@veiligdouchen.nl';
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://zwaluw-portal.vercel.app';
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.werkenbijzwaluwcomfortsanitair.nl';
   const results: { event: string; status: 'ok' | 'error'; error?: string }[] = [];
 
   async function run(event: string, fn: () => Promise<unknown>) {

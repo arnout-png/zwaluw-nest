@@ -707,3 +707,24 @@ model ContractGuideline {
   content   String      // Markdown
   updatedAt DateTime    @updatedAt
 }
+
+// ─────────────────────────────────────────────
+// Tabellen die al in de database bestonden maar niet in dit schema stonden.
+// Zonder deze modellen zou `prisma db push` ze verwijderen.
+// ─────────────────────────────────────────────
+
+// Sleutel/waarde-instellingen (fase-alert-drempels, LinkedIn-token)
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @db.Timestamptz(6)
+}
+
+// Aan/uit + eigen onderwerp/intro per automatische e-mail (src/lib/email-automations.ts)
+model EmailAutomationConfig {
+  key           String    @id
+  enabled       Boolean   @default(true)
+  customSubject String?
+  customIntro   String?
+  updatedAt     DateTime? @default(now()) @db.Timestamptz(6)
+}

@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase';
+import { addDays, amsterdamDateString, amsterdamMidnightUtc } from '@/lib/dates';
 import type {
   EmployeeWithProfile,
   Candidate,
@@ -18,19 +19,20 @@ import type {
 
 // ─── Employees ────────────────────────────────────────────────────────────────
 
+// Let op: de database heeft (behalve RoleAssignment → User) géén foreign keys.
+// PostgREST-embeds zoals `EmployeeProfile!EmployeeProfile_userId_fkey(...)`
+// falen daardoor met PGRST200; de personeelslijst bleef leeg en elk
+// medewerkersdossier gaf een 404. Daarom hier losse queries. BSN wordt bewust
+// niet opgehaald: geen enkel scherm toont het (dataminimalisatie).
+
+const PROFILE_COLUMNS = `id, userId, dateOfBirth, address, city, postalCode, phonePersonal,
+  emergencyName, emergencyPhone, startDate, department,
+  leaveBalanceDays, leaveUsedDays, googleSyncEnabled, createdAt, updatedAt`;
+
 export async function getEmployees(): Promise<EmployeeWithProfile[]> {
-  const { data, error } = await supabaseAdmin
+  const { data: users, error } = await supabaseAdmin
     .from('User')
-    .select(
-      `
-      id, email, name, role, isActive, createdAt, updatedAt,
-      employeeProfile:EmployeeProfile!EmployeeProfile_userId_fkey (
-        id, userId, dateOfBirth, address, city, postalCode, phonePersonal,
-        bsn, emergencyName, emergencyPhone, startDate, department,
-        leaveBalanceDays, leaveUsedDays, googleSyncEnabled, createdAt, updatedAt
-      )
-    `
-    )
+    .select('id, email, name, role, isActive, createdAt, updatedAt')
     .eq('isActive', true)
     .order('name');
 
@@ -38,44 +40,122 @@ export async function getEmployees(): Promise<EmployeeWithProfile[]> {
     console.error('getEmployees error:', error.message, error.code, error.details);
     return [];
   }
-  return (data as unknown as EmployeeWithProfile[]) ?? [];
+
+  const userRows = (users ?? []) as unknown as EmployeeWithProfile[];
+  if (userRows.length === 0) return [];
+
+  const { data: profiles } = await supabaseAdmin
+    .from('EmployeeProfile')
+    .select(PROFILE_COLUMNS)
+    .in('userId', userRows.map((u) => u.id));
+
+  const profileRows = (profiles ?? []) as unknown as NonNullable<EmployeeWithProfile['employeeProfile']>[];
+  const usedByProfile = await getVacationDaysUsed(profileRows.map((p) => p.id));
+  const byUser = new Map(
+    profileRows.map((p) => [p.userId, { ...p, leaveUsedDays: (p.leaveUsedDays ?? 0) + (usedByProfile[p.id] ?? 0) }])
+  );
+
+  return userRows.map((u) => ({ ...u, employeeProfile: byUser.get(u.id) }));
 }
 
 export async function getEmployee(id: string): Promise<EmployeeWithProfile | null> {
-  const { data, error } = await supabaseAdmin
+  const { data: user, error } = await supabaseAdmin
     .from('User')
-    .select(
-      `
-      id, email, name, role, isActive, createdAt, updatedAt,
-      employeeProfile:EmployeeProfile!EmployeeProfile_userId_fkey (
-        id, userId, dateOfBirth, address, city, postalCode, phonePersonal,
-        bsn, emergencyName, emergencyPhone, startDate, department,
-        leaveBalanceDays, leaveUsedDays, createdAt, updatedAt,
-        contracts:Contract!Contract_employeeProfileId_fkey (
-          id, employeeProfileId, contractType, startDate, endDate,
-          probationEndDate, contractSequence, hoursPerWeek, salaryGross,
-          status, createdAt, updatedAt
-        ),
-        leaveRequests:LeaveRequest!LeaveRequest_employeeProfileId_fkey (
-          id, employeeProfileId, type, status, startDate, endDate,
-          totalDays, reason, approvedById, respondedAt, createdAt
-        ),
-        dossierEntries:DossierEntry!DossierEntry_employeeProfileId_fkey (
-          id, employeeProfileId, date, type, title, description,
-          loggedById, createdAt,
-          loggedBy:User!DossierEntry_loggedById_fkey (id, name, role)
-        )
-      )
-    `
-    )
+    .select('id, email, name, role, isActive, createdAt, updatedAt')
     .eq('id', id)
-    .single();
+    .maybeSingle();
 
-  if (error) {
-    console.error('getEmployee error:', error.message, error.code);
+  if (error || !user) {
+    if (error) console.error('getEmployee error:', error.message, error.code);
     return null;
   }
-  return data as unknown as EmployeeWithProfile;
+
+  const { data: profile } = await supabaseAdmin
+    .from('EmployeeProfile')
+    .select(PROFILE_COLUMNS)
+    .eq('userId', id)
+    .maybeSingle();
+
+  if (!profile) return { ...(user as unknown as EmployeeWithProfile), employeeProfile: undefined };
+
+  const epId = (profile as { id: string }).id;
+  const [contractsRes, leaveRes, dossierRes, usedByProfile] = await Promise.all([
+    supabaseAdmin
+      .from('Contract')
+      .select(`id, employeeProfileId, contractType, startDate, endDate,
+               probationEndDate, contractSequence, hoursPerWeek, salaryGross,
+               status, createdAt, updatedAt`)
+      .eq('employeeProfileId', epId)
+      .order('startDate', { ascending: false }),
+    supabaseAdmin
+      .from('LeaveRequest')
+      .select(`id, employeeProfileId, type, status, startDate, endDate,
+               totalDays, reason, approvedById, respondedAt, createdAt`)
+      .eq('employeeProfileId', epId)
+      .order('startDate', { ascending: false }),
+    supabaseAdmin
+      .from('DossierEntry')
+      .select('id, employeeProfileId, date, type, title, description, loggedById, createdAt')
+      .eq('employeeProfileId', epId)
+      .order('date', { ascending: false }),
+    getVacationDaysUsed([epId]),
+  ]);
+
+  const dossierRows = (dossierRes.data ?? []) as { loggedById: string }[];
+  const authorIds = [...new Set(dossierRows.map((d) => d.loggedById).filter(Boolean))];
+  const { data: authors } = authorIds.length
+    ? await supabaseAdmin.from('User').select('id, name, role').in('id', authorIds)
+    : { data: [] };
+  const authorMap = Object.fromEntries(((authors ?? []) as { id: string; name: string; role: string }[]).map((a) => [a.id, a]));
+
+  const p = profile as unknown as NonNullable<EmployeeWithProfile['employeeProfile']>;
+  return {
+    ...(user as unknown as EmployeeWithProfile),
+    employeeProfile: {
+      ...p,
+      leaveUsedDays: (p.leaveUsedDays ?? 0) + (usedByProfile[epId] ?? 0),
+      contracts: (contractsRes.data ?? []) as unknown as Contract[],
+      leaveRequests: (leaveRes.data ?? []) as unknown as LeaveRequest[],
+      dossierEntries: dossierRows.map((d) => ({
+        ...d,
+        loggedBy: authorMap[d.loggedById] ?? null,
+      })) as unknown as NonNullable<EmployeeWithProfile['employeeProfile']>['dossierEntries'],
+    },
+  };
+}
+
+/**
+ * Opgenomen vakantiedagen dit kalenderjaar (Amsterdam), per EmployeeProfile:
+ * de som van goedgekeurde VACATION-aanvragen die dit jaar beginnen.
+ *
+ * `EmployeeProfile.leaveUsedDays` werd nergens bijgewerkt (stond overal op 0),
+ * waardoor het saldo altijd vol leek. De kolom blijft bestaan als handmatige
+ * correctie / meegenomen saldo en wordt bij deze som opgeteld.
+ */
+export async function getVacationDaysUsed(
+  employeeProfileIds: string[],
+  year: number = Number(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam', year: 'numeric' }).format(new Date()))
+): Promise<Record<string, number>> {
+  const result: Record<string, number> = {};
+  if (employeeProfileIds.length === 0) return result;
+
+  const { data, error } = await supabaseAdmin
+    .from('LeaveRequest')
+    .select('employeeProfileId, totalDays')
+    .in('employeeProfileId', employeeProfileIds)
+    .eq('type', 'VACATION')
+    .eq('status', 'APPROVED')
+    .gte('startDate', `${year}-01-01`)
+    .lt('startDate', `${year + 1}-01-01`);
+
+  if (error) {
+    console.error('getVacationDaysUsed error:', error.message);
+    return result;
+  }
+  for (const row of (data ?? []) as { employeeProfileId: string; totalDays: number | null }[]) {
+    result[row.employeeProfileId] = (result[row.employeeProfileId] ?? 0) + (row.totalDays ?? 0);
+  }
+  return result;
 }
 
 // ─── Candidates ───────────────────────────────────────────────────────────────
@@ -446,9 +526,10 @@ export async function getContractsExpiringSoon(): Promise<ContractWithEmployee[]
 
 export async function getDashboardStats(): Promise<DashboardStats> {
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const today = new Date();
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
-  const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString();
+  // "Vandaag" = de Nederlandse kalenderdag (server draait in UTC)
+  const todayNL = amsterdamDateString();
+  const todayStart = amsterdamMidnightUtc(todayNL).toISOString();
+  const todayEnd = amsterdamMidnightUtc(addDays(todayNL, 1)).toISOString();
 
   const [openCandidates, newLeads, interviews, todayCallbacks] = await Promise.all([
     supabaseAdmin
@@ -503,9 +584,9 @@ export async function getRecentCandidates(limit = 5): Promise<Candidate[]> {
 }
 
 export async function getTodayCallbacks(): Promise<{ candidateId: string; candidateName: string; phone?: string | null; callbackAt: string }[]> {
-  const today = new Date();
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
-  const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString();
+  const todayNL = amsterdamDateString();
+  const todayStart = amsterdamMidnightUtc(todayNL).toISOString();
+  const todayEnd = amsterdamMidnightUtc(addDays(todayNL, 1)).toISOString();
 
   const { data, error } = await supabaseAdmin
     .from('CallLog')
@@ -536,9 +617,9 @@ export async function getTodayCallbacks(): Promise<{ candidateId: string; candid
 }
 
 export async function getUpcomingCallbacks(days = 7): Promise<{ candidateId: string; candidateName: string; phone?: string | null; callbackAt: string; notes?: string | null }[]> {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-  const futureEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days + 1).toISOString();
+  const todayNL = amsterdamDateString();
+  const todayStart = amsterdamMidnightUtc(todayNL).toISOString();
+  const futureEnd = amsterdamMidnightUtc(addDays(todayNL, days + 1)).toISOString();
 
   const { data, error } = await supabaseAdmin
     .from('CallLog')

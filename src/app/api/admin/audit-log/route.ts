@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
+import { parseDbTimestamp } from '@/lib/dates';
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -13,8 +14,8 @@ export async function GET(request: NextRequest) {
   const entity = url.searchParams.get('entity');
   const from = url.searchParams.get('from');
   const to = url.searchParams.get('to');
-  const limit = Math.min(Number(url.searchParams.get('limit') || 50), 200);
-  const offset = Number(url.searchParams.get('offset') || 0);
+  const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 50, 1), 200);
+  const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
 
   let query = supabaseAdmin
     .from('AuditLog')
@@ -47,6 +48,9 @@ export async function GET(request: NextRequest) {
 
   const enriched = rows.map(r => ({
     ...r,
+    // createdAt staat als UTC zonder zone in de database; met zone teruggeven
+    // zodat de browser niet 1–2 uur te vroeg toont.
+    createdAt: parseDbTimestamp(r.createdAt)?.toISOString() ?? r.createdAt,
     user: r.userId ? usersMap[r.userId] ?? null : null,
   }));
 

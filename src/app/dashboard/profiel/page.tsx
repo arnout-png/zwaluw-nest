@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
+import { getVacationDaysUsed } from '@/lib/data';
+import { datePart } from '@/lib/dates';
 import { ProfielClient } from './profiel-client';
 
 export default async function ProfielPage() {
@@ -22,11 +24,13 @@ export default async function ProfielPage() {
          leaveBalanceDays, leaveUsedDays`
       )
       .eq('userId', session.userId)
-      .single(),
+      .maybeSingle(),
   ]);
 
   const user = userRes.data;
   const profile = profileRes.data;
+  const profileId = (profile as { id?: string } | null)?.id;
+  const vacationUsed = profileId ? (await getVacationDaysUsed([profileId]))[profileId] ?? 0 : 0;
 
   if (!user) redirect('/login');
 
@@ -40,13 +44,14 @@ export default async function ProfielPage() {
         city: profile?.city ?? '',
         postalCode: profile?.postalCode ?? '',
         phonePersonal: profile?.phonePersonal ?? '',
-        dateOfBirth: profile?.dateOfBirth ?? '',
+        // <input type="date"> wil JJJJ-MM-DD; de database levert "…T00:00:00" (veld bleef leeg).
+        dateOfBirth: datePart(profile?.dateOfBirth as string | undefined) ?? '',
         emergencyName: profile?.emergencyName ?? '',
         emergencyPhone: profile?.emergencyPhone ?? '',
         department: profile?.department ?? '',
-        startDate: profile?.startDate ?? '',
+        startDate: datePart(profile?.startDate as string | undefined) ?? '',
         leaveBalanceDays: (profile as { leaveBalanceDays?: number } | null)?.leaveBalanceDays ?? 25,
-        leaveUsedDays: (profile as { leaveUsedDays?: number } | null)?.leaveUsedDays ?? 0,
+        leaveUsedDays: ((profile as { leaveUsedDays?: number } | null)?.leaveUsedDays ?? 0) + vacationUsed,
       }}
     />
   );

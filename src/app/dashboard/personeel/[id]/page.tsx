@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect, notFound } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { getEmployee } from '@/lib/data';
@@ -6,11 +7,11 @@ import { ContractClient } from './contract-client';
 import type { LeaveRequest, DossierEntry, Contract } from '@/types';
 
 const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Beheerder', PLANNER: 'Planner', ADVISEUR: 'Adviseur',
+  ADMIN: 'Beheerder', MANAGER: 'Manager', PLANNER: 'Planner', ADVISEUR: 'Adviseur',
   MONTEUR: 'Monteur', CALLCENTER: 'Callcenter', BACKOFFICE: 'Backoffice', WAREHOUSE: 'Magazijn',
 };
 const ROLE_COLORS: Record<string, string> = {
-  ADMIN: 'bg-purple-500/10 text-purple-400', PLANNER: 'bg-blue-500/10 text-blue-400',
+  ADMIN: 'bg-purple-500/10 text-purple-400', MANAGER: 'bg-indigo-500/10 text-indigo-400', PLANNER: 'bg-blue-500/10 text-blue-400',
   ADVISEUR: 'bg-[#68b0a6]/10 text-[#68b0a6]', MONTEUR: 'bg-orange-500/10 text-orange-400',
   CALLCENTER: 'bg-pink-500/10 text-pink-400', BACKOFFICE: 'bg-yellow-500/10 text-yellow-400',
   WAREHOUSE: 'bg-gray-500/10 text-gray-400',
@@ -45,17 +46,17 @@ export default async function EmployeePage({
   const initials = employee.name.split(' ').map((p) => p[0]).join('').toUpperCase().slice(0, 2);
   const leaveBalance = profile?.leaveBalanceDays ?? 25;
   const leaveUsed = profile?.leaveUsedDays ?? 0;
-  const leavePercent = Math.min(100, Math.round((leaveUsed / leaveBalance) * 100));
+  const leavePercent = Math.min(100, Math.round((leaveUsed / Math.max(leaveBalance, 1)) * 100));
 
   return (
     <div className="space-y-6 fade-in max-w-4xl">
       {/* Back */}
-      <a href="/dashboard/personeel" className="inline-flex items-center gap-1 text-sm text-[#9ca3af] hover:text-white transition-colors">
+      <Link href="/dashboard/personeel" className="inline-flex items-center gap-1 text-sm text-[#9ca3af] hover:text-white transition-colors">
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
         </svg>
         Terug naar Personeel
-      </a>
+      </Link>
 
       {/* Header card */}
       <div className="rounded-xl border border-[#363848] bg-[#252732] p-6">
@@ -94,7 +95,7 @@ export default async function EmployeePage({
         <div className="mb-4">
           <div className="flex justify-between text-xs text-[#9ca3af] mb-1">
             <span>Verlofbalans</span>
-            <span>{leaveUsed} / {leaveBalance} dagen gebruikt</span>
+            <span>{leaveUsed} / {leaveBalance} vakantiedagen gebruikt (dit jaar)</span>
           </div>
           <div className="h-2 rounded-full bg-[#363848] overflow-hidden">
             <div className="h-full rounded-full bg-[#68b0a6] transition-all" style={{ width: `${leavePercent}%` }} />
