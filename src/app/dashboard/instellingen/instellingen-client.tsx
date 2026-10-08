@@ -261,12 +261,12 @@ GOOGLE_SERVICE_ACCOUNT_CREDENTIALS=base64_json`}
 
         {hasGoogleSheets && (
           <div className="mt-4">
-            <a
+            <Link
               href="/dashboard/werving/importeer"
               className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-xs font-semibold text-white hover:bg-green-500 transition"
             >
               Leads importeren →
-            </a>
+            </Link>
           </div>
         )}
       </div>
@@ -302,9 +302,8 @@ GOOGLE_SERVICE_ACCOUNT_CREDENTIALS=base64_json`}
           <div className="mt-4 rounded-lg bg-[#1e2028] px-3 py-3 text-xs text-[#9ca3af]">
             <p>Handmatig uitvoeren (curl):</p>
             <pre className="mt-1 text-[#68b0a6] font-mono overflow-x-auto">
-{`curl -X POST \\
-  -H "x-cron-secret: $CRON_SECRET" \\
-  ${typeof window !== 'undefined' ? window.location.origin : 'https://jouwdomein.nl'}/api/cron/daily-checks`}
+{`curl -H "Authorization: Bearer $CRON_SECRET" \\
+  https://www.werkenbijzwaluwcomfortsanitair.nl/api/cron/daily-checks`}
             </pre>
           </div>
         )}

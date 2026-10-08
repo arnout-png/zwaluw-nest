@@ -21,10 +21,13 @@ function canonicalLeadId(raw: string | null | undefined): string {
   return (raw ?? '').trim().replace(/^(?:l:)+/, '');
 }
 
+export const maxDuration = 300;
+
 export async function GET(request: NextRequest) {
-  // Allow access via CRON_SECRET header OR authenticated ADMIN session
+  // Allow access via CRON_SECRET header OR authenticated ADMIN session.
+  // Fail closed: zonder CRON_SECRET mag alleen een ingelogde ADMIN dit starten.
   const secret = request.headers.get('authorization');
-  const cronOk = !process.env.CRON_SECRET || secret === `Bearer ${process.env.CRON_SECRET}`;
+  const cronOk = !!process.env.CRON_SECRET && secret === `Bearer ${process.env.CRON_SECRET}`;
 
   if (!cronOk) {
     // Fallback: check if logged-in admin
@@ -207,14 +210,24 @@ export async function GET(request: NextRequest) {
 
     if (unassigned?.length) {
       const candIds = (unassigned as { id: string }[]).map(c => c.id);
-      // Fetch notes that contain campaign info
-      const { data: notes } = await supabaseAdmin
-        .from('CandidateNote')
-        .select('candidateId, content')
-        .in('candidateId', candIds)
-        .like('content', '%Campagne:%');
+      // Fetch notes that contain campaign info. In blokken: met honderden ids
+      // in één `in.(...)`-filter wordt de URL te lang, faalt de query stil en
+      // deed de backfill nooit iets.
+      const notes: { candidateId: string; content: string }[] = [];
+      for (let i = 0; i < candIds.length; i += 100) {
+        const { data, error } = await supabaseAdmin
+          .from('CandidateNote')
+          .select('candidateId, content')
+          .in('candidateId', candIds.slice(i, i + 100))
+          .like('content', '%Campagne:%');
+        if (error) {
+          console.error('[cron/sync-sheets] Backfill notes query failed:', error.message);
+          break;
+        }
+        notes.push(...((data ?? []) as { candidateId: string; content: string }[]));
+      }
 
-      for (const note of (notes ?? []) as { candidateId: string; content: string }[]) {
+      for (const note of notes) {
         const match = note.content.match(/\*\*Campagne:\*\*\s*(.+?)(?:\n|$)/);
         if (!match) continue;
         const jobId = matchJobOpening(match[1], '');
