@@ -9,30 +9,26 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
   }
 
-  const q = new URL(request.url).searchParams.get('q')?.trim() ?? '';
+  // Tekens die de PostgREST-filtersyntax breken (komma, haakjes, aanhalingstekens)
+  // of als wildcard werken eruit; anders gaf "Jansen, P" een fout en kon de
+  // zoekterm extra filtervoorwaarden injecteren.
+  const q = (new URL(request.url).searchParams.get('q') ?? '')
+    .replace(/[,()"'\\%*]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 100);
   if (q.length < 2) return NextResponse.json({ data: [] });
 
-  // Search candidates by name, email, phone (case-insensitive)
-  // Try with deletedAt filter first, fallback without
-  let result = await supabaseAdmin
+  // Search candidates by name, email, phone (case-insensitive). Verwijderde
+  // kandidaten (prullenbak) nooit tonen — de oude fallback zonder dat filter
+  // liet ze bij elke queryfout alsnog zien.
+  const { data, error } = await supabaseAdmin
     .from('Candidate')
     .select('id, name, email, phone, status, jobOpeningId')
     .is('deletedAt', null)
     .or(`name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%`)
     .order('createdAt', { ascending: false })
     .limit(8);
-
-  if (result.error) {
-    // deletedAt might not exist
-    result = await supabaseAdmin
-      .from('Candidate')
-      .select('id, name, email, phone, status, jobOpeningId')
-      .or(`name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%`)
-      .order('createdAt', { ascending: false })
-      .limit(8);
-  }
-
-  const { data, error } = result;
   if (error) {
     console.error('[Search] Query error:', error.message);
     return NextResponse.json({ data: [] });

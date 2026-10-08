@@ -2,41 +2,59 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import { sendReviewRequestEmail, isEmailConfigured } from '@/lib/email';
+import { logAudit, getIp } from '@/lib/audit';
 
 const REVIEW_URL = process.env.REVIEW_URL ?? 'https://g.page/r/veiligdouchen/review';
+const ALLOWED_ROLES = ['ADMIN', 'MANAGER', 'PLANNER', 'ADVISEUR'];
 
 /**
  * POST /api/review-requests
- * Body: { appointmentId, customerId, customerEmail, customerName }
+ * Body: { customerId }
  * Creates a ReviewRequest record and sends the review email.
+ *
+ * Voorheen faalde elke aanroep: de insert gebruikte een niet-bestaande kolom
+ * `appointmentId` en liet het verplichte `requestedById` weg. Bovendien kwamen
+ * e-mailadres en naam uit de request body, zodat iedere ingelogde gebruiker
+ * mail naar willekeurige adressen kon laten versturen. Nu: alleen voor de
+ * rollen die met klanten werken, en altijd naar het adres van de klantkaart.
  */
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
-
-  const body = await request.json();
-  const { appointmentId, customerId, customerEmail, customerName } = body;
-
-  if (!customerId || !customerEmail || !customerName) {
-    return NextResponse.json(
-      { error: 'customerId, customerEmail en customerName zijn verplicht.' },
-      { status: 400 }
-    );
+  if (!ALLOWED_ROLES.includes(session.role)) {
+    return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
   }
 
-  // Prevent duplicate review requests for the same appointment
-  if (appointmentId) {
-    const { count } = await supabaseAdmin
-      .from('ReviewRequest')
-      .select('id', { count: 'exact', head: true })
-      .eq('appointmentId', appointmentId);
+  const body = await request.json().catch(() => ({}));
+  const customerId = typeof body.customerId === 'string' ? body.customerId : '';
+  if (!customerId) {
+    return NextResponse.json({ error: 'customerId is verplicht.' }, { status: 400 });
+  }
 
-    if ((count ?? 0) > 0) {
-      return NextResponse.json(
-        { error: 'Er is al een beoordelingsverzoek verstuurd voor deze afspraak.' },
-        { status: 409 }
-      );
-    }
+  const { data: customer } = await supabaseAdmin
+    .from('Customer')
+    .select('id, name, email')
+    .eq('id', customerId)
+    .maybeSingle();
+  if (!customer) {
+    return NextResponse.json({ error: 'Klant niet gevonden.' }, { status: 404 });
+  }
+  if (!customer.email) {
+    return NextResponse.json({ error: 'Deze klant heeft geen e-mailadres.' }, { status: 400 });
+  }
+
+  // Niet dezelfde klant binnen 30 dagen opnieuw benaderen.
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const { count } = await supabaseAdmin
+    .from('ReviewRequest')
+    .select('id', { count: 'exact', head: true })
+    .eq('customerId', customerId)
+    .gte('createdAt', since);
+  if ((count ?? 0) > 0) {
+    return NextResponse.json(
+      { error: 'Deze klant heeft de afgelopen 30 dagen al een beoordelingsverzoek gekregen.' },
+      { status: 409 }
+    );
   }
 
   // Create ReviewRequest record
@@ -44,7 +62,7 @@ export async function POST(request: NextRequest) {
     .from('ReviewRequest')
     .insert({
       customerId,
-      appointmentId: appointmentId ?? null,
+      requestedById: session.userId,
       sentAt: new Date().toISOString(),
     })
     .select()
@@ -59,14 +77,22 @@ export async function POST(request: NextRequest) {
   if (isEmailConfigured()) {
     try {
       await sendReviewRequestEmail({
-        to: customerEmail,
-        customerName,
+        to: customer.email as string,
+        customerName: customer.name as string,
         reviewUrl: REVIEW_URL,
       });
     } catch (err) {
       console.error('Review request email failed (non-fatal):', err);
     }
   }
+
+  await logAudit({
+    userId: session.userId,
+    action: 'REVIEW_REQUEST_SENT',
+    entity: 'Customer',
+    entityId: customerId,
+    ipAddress: getIp(request),
+  });
 
   return NextResponse.json({ data }, { status: 201 });
 }
