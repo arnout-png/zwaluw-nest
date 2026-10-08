@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { LeaveCalendar } from '@/components/verzuim/leave-calendar';
 import { LeaveRequestForm } from '@/components/verzuim/leave-request-form';
 import type { LeaveRequest } from '@/types';
+import { amsterdamDateString, datePart } from '@/lib/dates';
 
 interface VerzuimClientProps {
   leaveRequests: LeaveRequest[];
@@ -83,6 +84,34 @@ export function VerzuimClient({
     }
   }
 
+  const todayNL = amsterdamDateString();
+  const ongoingSick = requests.filter(
+    (r) => r.type === 'SICK' && (!r.endDate || (datePart(r.endDate) ?? '') >= todayNL)
+  );
+
+  async function handleRecover(id: string) {
+    setProcessingId(id);
+    setActionError('');
+    try {
+      const res = await fetch(`/api/leave/${id}/herstel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, endDate: json.lastSickDay } : r)));
+      } else {
+        const json = await res.json().catch(() => ({}));
+        setActionError(json.error ?? 'Hersteldmelding mislukt.');
+      }
+    } catch {
+      setActionError('Kan geen verbinding maken met de server.');
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
   function handleFormSuccess() {
     setShowForm(false);
     window.location.reload();
@@ -126,6 +155,32 @@ export function VerzuimClient({
             onSuccess={handleFormSuccess}
             onCancel={() => setShowForm(false)}
           />
+        </div>
+      )}
+
+      {isManager && ongoingSick.length > 0 && (
+        <div className="rounded-xl border border-[#f7a247]/30 bg-[#252732] p-5">
+          <h2 className="text-sm font-semibold text-white mb-3">Lopende ziekmeldingen ({ongoingSick.length})</h2>
+          <div className="space-y-2">
+            {ongoingSick.map((req) => (
+              <div key={req.id} className="flex items-center justify-between rounded-lg bg-[#1e2028] px-4 py-2.5">
+                <div>
+                  <div className="text-sm text-white">{getRequesterName(req)}</div>
+                  <div className="text-xs text-[#9ca3af]">
+                    Ziek sinds {new Date(req.startDate).toLocaleDateString('nl-NL')}
+                    {req.endDate ? ` · verwacht hersteld ${new Date(req.endDate).toLocaleDateString('nl-NL')}` : ' · lopend'}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleRecover(req.id)}
+                  disabled={processingId === req.id}
+                  className="rounded-md bg-[#68b0a6]/10 px-3 py-1 text-xs font-medium text-[#68b0a6] hover:bg-[#68b0a6]/20 disabled:opacity-50"
+                >
+                  Hersteld per vandaag
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { LeaveRequestForm } from '@/components/verzuim/leave-request-form';
 import type { LeaveRequest } from '@/types';
+import { amsterdamDateString, datePart } from '@/lib/dates';
 
 interface MijnVerlofClientProps {
   leaveRequests: LeaveRequest[];
@@ -29,6 +30,32 @@ export function MijnVerlofClient({ leaveRequests: initial, leaveBalance, leaveUs
     setFormMode(null);
     window.location.reload();
   }
+
+  async function handleRecover(id: string) {
+    setCancellingId(id);
+    setCancelError('');
+    try {
+      const res = await fetch(`/api/leave/${id}/herstel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) {
+        window.location.reload();
+      } else {
+        const json = await res.json().catch(() => ({}));
+        setCancelError(json.error ?? 'Hersteldmelding mislukt.');
+      }
+    } catch {
+      setCancelError('Kan geen verbinding maken met de server.');
+    } finally {
+      setCancellingId(null);
+    }
+  }
+
+  const todayNL = amsterdamDateString();
+  const isOngoingSick = (req: LeaveRequest) =>
+    req.type === 'SICK' && (!req.endDate || (datePart(req.endDate) ?? '') >= todayNL);
 
   async function handleCancel(id: string) {
     setCancellingId(id);
@@ -159,7 +186,7 @@ export function MijnVerlofClient({ leaveRequests: initial, leaveBalance, leaveUs
                   </div>
                   <div className="text-xs text-[#9ca3af] mt-0.5">
                     {new Date(req.startDate).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long' })}
-                    {req.endDate ? ` – ${new Date(req.endDate).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })}` : ''}
+                    {req.endDate ? ` – ${new Date(req.endDate).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })}` : req.type === 'SICK' ? ' – lopend' : ''}
                   </div>
                   {req.reason && (
                     <div className="text-xs text-[#9ca3af] italic mt-0.5">{req.reason}</div>
@@ -170,6 +197,15 @@ export function MijnVerlofClient({ leaveRequests: initial, leaveBalance, leaveUs
                   <div className="text-xs text-[#9ca3af]">
                     {new Date(req.createdAt).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
                   </div>
+                  {isOngoingSick(req) && (
+                    <button
+                      onClick={() => handleRecover(req.id)}
+                      disabled={cancellingId === req.id}
+                      className="mt-1 block text-xs text-[#68b0a6] underline hover:text-white disabled:opacity-50"
+                    >
+                      {cancellingId === req.id ? 'Bezig…' : 'Hersteld melden'}
+                    </button>
+                  )}
                   {req.status === 'PENDING' && (
                     <button
                       onClick={() => handleCancel(req.id)}

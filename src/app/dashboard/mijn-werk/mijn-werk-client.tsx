@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { amsterdamDateString } from '@/lib/dates';
 import type { Appointment } from '@/types';
 import type { SessionPayload } from '@/lib/auth';
 
@@ -49,10 +50,11 @@ function getDurationMin(appt: Appointment): number {
   return 60;
 }
 
-export function MijnWerkClient({ appointments, session }: MijnWerkClientProps) {
+export function MijnWerkClient({ appointments }: MijnWerkClientProps) {
   const [reportingSick, setReportingSick] = useState(false);
   const [sickSaving, setSickSaving] = useState(false);
   const [sickDone, setSickDone] = useState(false);
+  const [sickError, setSickError] = useState('');
 
   const today = new Date();
   const dateLabel = today.toLocaleDateString('nl-NL', {
@@ -61,15 +63,25 @@ export function MijnWerkClient({ appointments, session }: MijnWerkClientProps) {
 
   async function handleSickReport() {
     setSickSaving(true);
+    setSickError('');
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
-      await fetch('/api/leave', {
+      // Nederlandse datum (toISOString gaf vóór 02:00 de dag van gisteren) en
+      // zonder einddatum: de ziekmelding loopt tot een hersteldmelding.
+      const todayStr = amsterdamDateString();
+      const res = await fetch('/api/leave', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'SICK', startDate: todayStr, endDate: todayStr, reason: 'Ziekmelding via app' }),
+        body: JSON.stringify({ type: 'SICK', startDate: todayStr, reason: 'Ziekmelding via app' }),
       });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setSickError(json.error ?? 'Ziekmelding mislukt. Bel je leidinggevende.');
+        return;
+      }
       setSickDone(true);
       setReportingSick(false);
+    } catch {
+      setSickError('Geen verbinding. Bel je leidinggevende.');
     } finally {
       setSickSaving(false);
     }
@@ -88,6 +100,11 @@ export function MijnWerkClient({ appointments, session }: MijnWerkClientProps) {
       </div>
 
       {/* Sick report button */}
+      {sickError && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          {sickError}
+        </div>
+      )}
       {sickDone ? (
         <div className="rounded-xl border border-[#4ade80]/30 bg-[#4ade80]/10 px-4 py-3 text-sm text-[#4ade80]">
           Ziekmelding ingediend. Beterschap!
