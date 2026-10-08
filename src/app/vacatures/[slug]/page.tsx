@@ -1,11 +1,8 @@
 import { redirect } from 'next/navigation';
 import { queryString } from '@/lib/site-url';
 
-/**
- * Oude sollicitatielinks (/apply/<slug>) → de vacaturepagina, waar het enige
- * sollicitatieformulier staat. Querystring (utm-tags, fbclid) gaat mee.
- */
-export default async function ApplySlugRedirect({
+/** /vacatures/<slug> → /vacature/<slug>, met behoud van de querystring. */
+export default async function VacatureAlias({
   params,
   searchParams,
 }: {

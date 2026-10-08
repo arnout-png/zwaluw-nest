@@ -3,6 +3,8 @@ import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import { sendPhoneCorrectEmail } from '@/lib/email';
 import { logAudit, getIp } from '@/lib/audit';
+import { isDeliverableEmail } from '@/lib/recruitment';
+import { externalBaseUrl } from '@/lib/site-url';
 import { randomUUID } from 'crypto';
 
 export async function POST(
@@ -28,8 +30,8 @@ export async function POST(
     return NextResponse.json({ error: 'Kandidaat niet gevonden.' }, { status: 404 });
   }
 
-  if (!candidate.email) {
-    return NextResponse.json({ error: 'Kandidaat heeft geen e-mailadres.' }, { status: 400 });
+  if (!isDeliverableEmail(candidate.email)) {
+    return NextResponse.json({ error: 'Kandidaat heeft geen bruikbaar e-mailadres.' }, { status: 400 });
   }
 
   // Generate token + expiry (7 days)
@@ -42,22 +44,19 @@ export async function POST(
     .eq('id', candidateId);
 
   // Send email
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.werkenbijzwaluwcomfortsanitair.nl';
+  const baseUrl = externalBaseUrl();
   const firstName = candidate.name.split(' ')[0];
 
   try {
-    console.log('[PhoneCorrect] Sending to:', candidate.email, 'name:', firstName, 'baseUrl:', baseUrl);
     await sendPhoneCorrectEmail({
       to: candidate.email,
       name: firstName,
       token,
       baseUrl,
     });
-    console.log('[PhoneCorrect] Email sent successfully');
   } catch (err) {
-    const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
-    console.error('[PhoneCorrect] Email failed:', msg);
-    return NextResponse.json({ error: 'E-mail verzenden mislukt.', detail: msg }, { status: 500 });
+    console.error('[PhoneCorrect] Email failed:', err);
+    return NextResponse.json({ error: 'E-mail verzenden mislukt.' }, { status: 500 });
   }
 
   logAudit({

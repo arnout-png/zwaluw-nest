@@ -12,6 +12,10 @@ export async function GET(
 ) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
+  // Belnotities bevatten persoonsgegevens: zelfde rollen als de kandidaatkaart.
+  if (!['ADMIN', 'MANAGER', 'PLANNER'].includes(session.role)) {
+    return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
+  }
 
   const { id: candidateId } = await params;
 

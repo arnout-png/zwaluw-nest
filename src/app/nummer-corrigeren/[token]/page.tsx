@@ -32,7 +32,7 @@ export default function NummerCorrigerenPage() {
     setFormError('');
 
     const trimmed = phone.trim();
-    if (!trimmed || trimmed.length < 8) {
+    if (trimmed.replace(/\D/g, '').length < 9) {
       setFormError('Vul een geldig telefoonnummer in.');
       return;
     }
@@ -66,8 +66,8 @@ export default function NummerCorrigerenPage() {
             <span role="img" aria-label="bird">&#x1F426;</span>
           </div>
           <div>
-            <div style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>ZwaluwNest</div>
-            <div style={{ color: '#68b0a6', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase' as const }}>Veilig Douchen</div>
+            <div style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>Zwaluw Comfortsanitair</div>
+            <div style={{ color: '#68b0a6', fontSize: 10, letterSpacing: 2, textTransform: 'uppercase' as const }}>Werken bij</div>
           </div>
         </div>
 
@@ -92,6 +92,8 @@ export default function NummerCorrigerenPage() {
                 </label>
                 <input
                   type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="06 12345678"
@@ -176,7 +178,7 @@ export default function NummerCorrigerenPage() {
         {/* Footer */}
         <div style={{ background: '#1e2028', padding: '16px 32px', borderTop: '1px solid #363848', textAlign: 'center' }}>
           <p style={{ color: '#6b7280', fontSize: 12, margin: 0 }}>
-            Veilig Douchen &mdash; Zwaluw Comfortsanitair
+            Zwaluw Comfortsanitair &middot; info@veiligdouchen.nl
           </p>
         </div>
       </div>

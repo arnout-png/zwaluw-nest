@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
+import { candidateRecipients } from '@/lib/recruitment';
 
 export async function GET(
   _request: NextRequest,
@@ -10,11 +11,11 @@ export async function GET(
 
   const { data: candidate } = await supabaseAdmin
     .from('Candidate')
-    .select('id, name, phoneCorrectExpiresAt')
+    .select('id, name, phoneCorrectExpiresAt, deletedAt')
     .eq('phoneCorrectToken', token)
-    .single();
+    .maybeSingle();
 
-  if (!candidate) {
+  if (!candidate || candidate.deletedAt) {
     return NextResponse.json({ valid: false, error: 'invalid' });
   }
 
@@ -34,11 +35,11 @@ export async function POST(
 
   const { data: candidate } = await supabaseAdmin
     .from('Candidate')
-    .select('id, name, phone, phoneCorrectExpiresAt')
+    .select('id, name, phone, phoneCorrectExpiresAt, assignedToId, deletedAt')
     .eq('phoneCorrectToken', token)
-    .single();
+    .maybeSingle();
 
-  if (!candidate) {
+  if (!candidate || candidate.deletedAt) {
     return NextResponse.json({ error: 'Ongeldige of verlopen link.' }, { status: 400 });
   }
 
@@ -46,11 +47,17 @@ export async function POST(
     return NextResponse.json({ error: 'Deze link is verlopen.' }, { status: 400 });
   }
 
-  const body = await request.json();
-  const phone = (body.phone ?? '').trim();
+  let body: { phone?: unknown };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Ongeldige aanvraag.' }, { status: 400 });
+  }
+  const phone = typeof body.phone === 'string' ? body.phone.trim().slice(0, 40) : '';
+  const digits = phone.replace(/\D/g, '');
 
-  if (!phone || phone.length < 8) {
-    return NextResponse.json({ error: 'Vul een geldig telefoonnummer in.' }, { status: 400 });
+  if (digits.length < 9 || digits.length > 15) {
+    return NextResponse.json({ error: 'Vul een geldig telefoonnummer in, bijvoorbeeld 06 12345678.' }, { status: 400 });
   }
 
   const oldPhone = candidate.phone;
@@ -66,17 +73,13 @@ export async function POST(
     })
     .eq('id', candidate.id);
 
-  // Create notifications for ADMIN + MANAGER users
-  const { data: admins } = await supabaseAdmin
-    .from('User')
-    .select('id')
-    .in('role', ['ADMIN', 'MANAGER'])
-    .eq('isActive', true);
+  // Melden aan de eigenaar van de kandidaat (zonder eigenaar: de beheerders).
+  const recipientIds = await candidateRecipients(candidate.assignedToId as string | null);
 
-  if (admins?.length) {
-    const notifications = (admins as { id: string }[]).map((u) => ({
+  if (recipientIds.length) {
+    const notifications = recipientIds.map((userId) => ({
       id: crypto.randomUUID(),
-      userId: u.id,
+      userId,
       type: 'SYSTEM' as const,
       title: 'Nummer gecorrigeerd',
       message: `${candidate.name} heeft zijn/haar telefoonnummer gecorrigeerd naar ${phone}`,

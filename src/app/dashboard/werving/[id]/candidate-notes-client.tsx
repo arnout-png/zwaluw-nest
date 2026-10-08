@@ -13,16 +13,21 @@ interface Props {
   initialNotes: CandidateNote[];
 }
 
-/** Highlight @mentions in note content */
+/**
+ * Highlight @mentions and render **vet** (systeemnotities van sollicitaties en
+ * de pre-screening gebruiken dat) — als tekst, nooit als HTML.
+ */
 function renderNoteContent(content: string) {
-  const parts = content.split(/(@\S+)/g);
-  return parts.map((part, i) =>
-    part.startsWith('@') ? (
-      <span key={i} className="font-medium text-[#68b0a6]">{part}</span>
-    ) : (
-      <span key={i}>{part}</span>
-    )
-  );
+  const parts = content.split(/(\*\*[^*\n]+\*\*|@\S+)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return <strong key={i} className="font-semibold text-white">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('@')) {
+      return <span key={i} className="font-medium text-[#68b0a6]">{part}</span>;
+    }
+    return <span key={i}>{part}</span>;
+  });
 }
 
 export function CandidateNotesClient({ candidateId, initialNotes }: Props) {

@@ -35,6 +35,7 @@ const LEAD_SOURCE_COLOR: Record<string, string> = {
   INDEED: 'bg-purple-500/10 text-purple-400',
   REFERRAL: 'bg-green-500/10 text-green-400',
   MANUAL: 'bg-[#363848] text-[#9ca3af]',
+  WEBSITE: 'bg-[#68b0a6]/10 text-[#68b0a6]',
   GOOGLE: 'bg-red-500/10 text-red-400',
   OTHER: 'bg-[#363848] text-[#9ca3af]',
 };
@@ -45,6 +46,7 @@ const LEAD_SOURCE_LABEL: Record<string, string> = {
   INDEED: 'Indeed',
   REFERRAL: 'Referral',
   MANUAL: 'Handmatig',
+  WEBSITE: 'Website',
   GOOGLE: 'Google',
   OTHER: 'Overig',
 };

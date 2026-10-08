@@ -73,7 +73,7 @@ export default function ScreeningPage() {
             </svg>
           </div>
           <div>
-            <div className="text-sm font-semibold text-white">Veilig Douchen</div>
+            <div className="text-sm font-semibold text-white">Zwaluw Comfortsanitair</div>
             <div className="text-[10px] text-[#68b0a6] font-mono tracking-widest uppercase">Pre-screening</div>
           </div>
         </div>
@@ -103,7 +103,7 @@ export default function ScreeningPage() {
             <div className="text-3xl mb-4">⏰</div>
             <h1 className="text-xl font-semibold text-white mb-2">Link verlopen</h1>
             <p className="text-[#9ca3af] text-sm">
-              Deze uitnodigingslink is verlopen. Neem contact op met Veilig Douchen om een nieuwe link te ontvangen.
+              Deze uitnodigingslink is verlopen. Mail naar info@veiligdouchen.nl om een nieuwe link te ontvangen.
             </p>
           </div>
         )}
@@ -114,7 +114,7 @@ export default function ScreeningPage() {
             <div className="text-3xl mb-4">⚠️</div>
             <h1 className="text-xl font-semibold text-white mb-2">Ongeldige link</h1>
             <p className="text-[#9ca3af] text-sm">
-              Deze link is niet geldig. Controleer de link in je e-mail of neem contact op met Veilig Douchen.
+              Deze link is niet geldig. Controleer de link in je e-mail of mail naar info@veiligdouchen.nl.
             </p>
           </div>
         )}
@@ -128,7 +128,7 @@ export default function ScreeningPage() {
               Je pre-screening is succesvol ingediend. We beoordelen je antwoorden en nemen
               binnen enkele werkdagen contact met je op.
             </p>
-            <p className="text-[#68b0a6] text-sm mt-4 font-medium">Veilig Douchen Team</p>
+            <p className="text-[#68b0a6] text-sm mt-4 font-medium">Team Zwaluw Comfortsanitair</p>
           </div>
         )}
 
@@ -153,13 +153,13 @@ export default function ScreeningPage() {
               {/* Motivatie */}
               <div>
                 <label className="block text-sm font-medium text-[#e8e9ed] mb-1.5">
-                  Waarom wil je bij Veilig Douchen werken? <span className="text-red-400">*</span>
+                  Waarom wil je bij Zwaluw Comfortsanitair werken? <span className="text-red-400">*</span>
                 </label>
                 <textarea
                   value={motivation}
                   onChange={(e) => { setMotivation(e.target.value); setErrors((p) => ({ ...p, motivation: '' })); }}
                   rows={4}
-                  className={`w-full rounded-lg border px-3 py-2.5 bg-[#1e2028] text-sm text-[#e8e9ed] placeholder:text-[#6b7280] focus:outline-none focus:ring-2 focus:ring-[#68b0a6]/50 transition resize-none ${errors.motivation ? 'border-red-500' : 'border-[#363848]'}`}
+                  className={`w-full rounded-lg border px-3 py-2.5 bg-[#1e2028] text-base sm:text-sm text-[#e8e9ed] placeholder:text-[#6b7280] focus:outline-none focus:ring-2 focus:ring-[#68b0a6]/50 transition resize-none ${errors.motivation ? 'border-red-500' : 'border-[#363848]'}`}
                   placeholder="Vertel ons over je motivatie..."
                 />
                 {errors.motivation && <p className="text-red-400 text-xs mt-1">{errors.motivation}</p>}
@@ -174,7 +174,7 @@ export default function ScreeningPage() {
                   value={experience}
                   onChange={(e) => { setExperience(e.target.value); setErrors((p) => ({ ...p, experience: '' })); }}
                   rows={4}
-                  className={`w-full rounded-lg border px-3 py-2.5 bg-[#1e2028] text-sm text-[#e8e9ed] placeholder:text-[#6b7280] focus:outline-none focus:ring-2 focus:ring-[#68b0a6]/50 transition resize-none ${errors.experience ? 'border-red-500' : 'border-[#363848]'}`}
+                  className={`w-full rounded-lg border px-3 py-2.5 bg-[#1e2028] text-base sm:text-sm text-[#e8e9ed] placeholder:text-[#6b7280] focus:outline-none focus:ring-2 focus:ring-[#68b0a6]/50 transition resize-none ${errors.experience ? 'border-red-500' : 'border-[#363848]'}`}
                   placeholder="Beschrijf je werkervaring (functies, sectoren, vaardigheden)..."
                 />
                 {errors.experience && <p className="text-red-400 text-xs mt-1">{errors.experience}</p>}
@@ -189,7 +189,7 @@ export default function ScreeningPage() {
                   type="date"
                   value={availableFrom}
                   onChange={(e) => setAvailableFrom(e.target.value)}
-                  className="w-full rounded-lg border border-[#363848] px-3 py-2.5 bg-[#1e2028] text-sm text-[#e8e9ed] focus:outline-none focus:ring-2 focus:ring-[#68b0a6]/50 transition"
+                  className="w-full rounded-lg border border-[#363848] px-3 py-2.5 bg-[#1e2028] text-base sm:text-sm text-[#e8e9ed] focus:outline-none focus:ring-2 focus:ring-[#68b0a6]/50 transition"
                 />
               </div>
 
@@ -206,7 +206,7 @@ export default function ScreeningPage() {
                     onChange={(e) => setSalaryExpectation(e.target.value)}
                     min={0}
                     step={100}
-                    className="w-full rounded-lg border border-[#363848] pl-7 pr-3 py-2.5 bg-[#1e2028] text-sm text-[#e8e9ed] focus:outline-none focus:ring-2 focus:ring-[#68b0a6]/50 transition"
+                    className="w-full rounded-lg border border-[#363848] pl-7 pr-3 py-2.5 bg-[#1e2028] text-base sm:text-sm text-[#e8e9ed] focus:outline-none focus:ring-2 focus:ring-[#68b0a6]/50 transition"
                     placeholder="2500"
                   />
                 </div>
@@ -221,7 +221,7 @@ export default function ScreeningPage() {
                   value={extraNotes}
                   onChange={(e) => setExtraNotes(e.target.value)}
                   rows={3}
-                  className="w-full rounded-lg border border-[#363848] px-3 py-2.5 bg-[#1e2028] text-sm text-[#e8e9ed] placeholder:text-[#6b7280] focus:outline-none focus:ring-2 focus:ring-[#68b0a6]/50 transition resize-none"
+                  className="w-full rounded-lg border border-[#363848] px-3 py-2.5 bg-[#1e2028] text-base sm:text-sm text-[#e8e9ed] placeholder:text-[#6b7280] focus:outline-none focus:ring-2 focus:ring-[#68b0a6]/50 transition resize-none"
                   placeholder="Wil je ons nog iets laten weten?"
                 />
               </div>

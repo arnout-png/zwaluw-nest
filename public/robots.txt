@@ -1,2 +1,8 @@
 User-agent: *
+Allow: /$
+Allow: /vacature
+Allow: /vacatures
+Allow: /logo.png
+Allow: /_next/static/
+Allow: /_next/image
 Disallow: /

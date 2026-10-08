@@ -1,17 +1,31 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
-import { supabaseAdmin } from '@/lib/supabase';
-import type { JobOpening } from '@/types';
+import { getActiveJobs, COMPANY } from '@/lib/vacature';
+import { formatHours, formatSalary, teaser } from '@/lib/vacature-format';
 
 export const revalidate = 60;
 
-export default async function ApplyListPage() {
-  const { data } = await supabaseAdmin
-    .from('JobOpening')
-    .select('id, slug, title, description, location, hoursPerWeek, salaryRange, imageUrl, isActive')
-    .eq('isActive', true)
-    .order('createdAt', { ascending: false });
+const OVERVIEW_DESCRIPTION =
+  'Werken bij Zwaluw Comfortsanitair in Zeewolde. Help mensen zelfstandig en veilig thuis te blijven wonen — bekijk onze vacatures en solliciteer direct online.';
 
-  const jobs = (data ?? []) as unknown as JobOpening[];
+export const metadata: Metadata = {
+  title: { absolute: 'Vacatures in Zeewolde | Werken bij Zwaluw Comfortsanitair' },
+  description: OVERVIEW_DESCRIPTION,
+  alternates: { canonical: '/vacature' },
+  openGraph: {
+    title: 'Vacatures | Werken bij Zwaluw Comfortsanitair',
+    description: OVERVIEW_DESCRIPTION,
+    url: '/vacature',
+    siteName: 'Werken bij Zwaluw Comfortsanitair',
+    locale: 'nl_NL',
+    type: 'website',
+    images: [{ url: '/vacature/og', width: 1200, height: 630, alt: 'Werken bij Zwaluw Comfortsanitair' }],
+  },
+  twitter: { card: 'summary_large_image' },
+};
+
+export default async function ApplyListPage() {
+  const jobs = await getActiveJobs();
 
   return (
     <div>
@@ -47,7 +61,7 @@ export default async function ApplyListPage() {
               <p className="text-[#1b1c1c] text-lg font-semibold">Geen openstaande vacatures</p>
               <p className="text-sm text-[#6f7977] mt-2">Kom later terug of stuur een open sollicitatie.</p>
               <a
-                href="https://veiligdouchen.nl"
+                href={COMPANY.website}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 mt-6 text-[#196961] font-semibold text-sm hover:underline"
@@ -96,20 +110,20 @@ export default async function ApplyListPage() {
                           {job.location}
                         </span>
                       )}
-                      {job.hoursPerWeek && (
+                      {formatHours(job.hoursPerWeek) && (
                         <span className="rounded-full bg-[#f0eded] px-3 py-0.5 text-xs text-[#3f4947]">
-                          {job.hoursPerWeek} uur
+                          {formatHours(job.hoursPerWeek)}
                         </span>
                       )}
-                      {job.salaryRange && (
+                      {formatSalary(job.salaryRange) && (
                         <span className="rounded-full bg-[#ffdcbf] px-3 py-0.5 text-xs text-[#703f00] font-medium">
-                          € {job.salaryRange}
+                          {formatSalary(job.salaryRange)}
                         </span>
                       )}
                     </div>
 
-                    <p className="text-sm text-[#3f4947] line-clamp-2 mb-5 leading-relaxed">
-                      {job.description}
+                    <p className="text-sm text-[#3f4947] line-clamp-3 mb-5 leading-relaxed">
+                      {teaser(job.description, 220)}
                     </p>
 
                     <Link
@@ -139,7 +153,7 @@ export default async function ApplyListPage() {
             Stuur een open sollicitatie en we nemen contact op zodra er een passende plek vrij is.
           </p>
           <a
-            href="mailto:info@veiligdouchen.nl"
+            href={`mailto:${COMPANY.email}?subject=Open%20sollicitatie`}
             className="inline-flex items-center gap-2 bg-white text-[#196961] font-bold px-6 py-3 rounded-lg hover:bg-[#a7f0e5] transition-colors"
           >
             Open sollicitatie sturen

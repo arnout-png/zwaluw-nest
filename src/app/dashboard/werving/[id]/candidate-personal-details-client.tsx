@@ -11,6 +11,7 @@ const LEAD_SOURCE_OPTIONS = [
   { value: 'INDEED', label: 'Indeed' },
   { value: 'REFERRAL', label: 'Referral' },
   { value: 'GOOGLE', label: 'Google' },
+  { value: 'WEBSITE', label: 'Website (vacaturepagina)' },
   { value: 'MANUAL', label: 'Handmatig' },
   { value: 'OTHER', label: 'Overig' },
 ];

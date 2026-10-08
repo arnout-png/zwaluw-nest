@@ -3,6 +3,7 @@ import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import { sendRejectionEmail, isEmailConfigured } from '@/lib/email';
 import { logAudit, getIp } from '@/lib/audit';
+import { isDeliverableEmail } from '@/lib/recruitment';
 
 export async function POST(
   request: NextRequest,
@@ -42,7 +43,7 @@ export async function POST(
 
   let rejectionEmailSent = false;
 
-  if (body.sendEmail && candidate.email && isEmailConfigured()) {
+  if (body.sendEmail && isDeliverableEmail(candidate.email) && isEmailConfigured()) {
     try {
       await sendRejectionEmail({
         to: candidate.email,

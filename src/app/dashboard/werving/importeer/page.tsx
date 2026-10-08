@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import type { SheetLead } from '@/lib/google-sheets';
 
 type ImportState = 'idle' | 'loading' | 'preview' | 'importing' | 'done' | 'error';
@@ -131,12 +132,12 @@ export default function ImporteerPage() {
             {result.skipped > 0 && `, ${result.skipped} overgeslagen (duplicaat)`}.
           </p>
           <div className="mt-4 flex gap-3 justify-center">
-            <a
+            <Link
               href="/dashboard/werving"
               className="rounded-lg bg-[#68b0a6] px-4 py-2 text-sm font-semibold text-[#14151b] hover:bg-[#7ec4ba] transition"
             >
               Bekijk Werving Kanban →
-            </a>
+            </Link>
             <button
               onClick={() => { setState('idle'); setLeads([]); setResult(null); }}
               className="rounded-lg border border-[#363848] px-4 py-2 text-sm text-[#9ca3af] hover:bg-[#363848] transition"

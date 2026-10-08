@@ -2,6 +2,10 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import Link from 'next/link';
 import MetaPixelScript from '@/components/MetaPixelScript';
+import { PUBLIC_SITE_URL } from '@/lib/site-url';
+import { COMPANY } from '@/lib/vacature';
+import { AttributionCapture } from './attribution-capture';
+import { MobileNav } from './mobile-nav';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -9,9 +13,32 @@ const inter = Inter({
   display: 'swap',
 });
 
+const SITE_NAME = 'Werken bij Zwaluw Comfortsanitair';
+
+/**
+ * Publieke werken-bij-sectie. Het portal zelf staat op noindex (root layout);
+ * deze sectie juist niet: vacatures moeten vindbaar zijn (Google for Jobs) en
+ * netjes delen op Facebook. Pagina's overschrijven title/description/og.
+ */
 export const metadata: Metadata = {
-  title: 'Solliciteer bij Veilig Douchen',
-  description: 'Bekijk onze openstaande vacatures en solliciteer direct online.',
+  metadataBase: new URL(PUBLIC_SITE_URL),
+  title: {
+    default: `Vacatures | ${SITE_NAME}`,
+    template: `%s | ${SITE_NAME}`,
+  },
+  description:
+    'Werken bij Zwaluw Comfortsanitair in Zeewolde: bekijk onze openstaande vacatures en solliciteer direct online.',
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true },
+  },
+  openGraph: {
+    siteName: SITE_NAME,
+    locale: 'nl_NL',
+    type: 'website',
+  },
+  twitter: { card: 'summary_large_image' },
 };
 
 export default function VacatureLayout({ children }: { children: React.ReactNode }) {
@@ -19,6 +46,7 @@ export default function VacatureLayout({ children }: { children: React.ReactNode
     <div className={`${inter.className} bg-[#fbf9f8] text-[#1b1c1c] antialiased min-h-screen flex flex-col`}>
       {/* Meta Pixel — alleen op de publieke vacaturesectie, niet op het interne portal */}
       <MetaPixelScript />
+      <AttributionCapture />
 
       {/* Sticky nav */}
       <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md shadow-sm">
@@ -73,12 +101,12 @@ export default function VacatureLayout({ children }: { children: React.ReactNode
             </p>
           </div>
           <div className="flex gap-6">
-            <a href="https://veiligdouchen.nl/privacybeleid/" target="_blank" rel="noopener noreferrer" className="text-[10px] uppercase tracking-widest text-slate-500 hover:text-teal-600 opacity-80">
-              Privacy Policy
+            <a href={COMPANY.privacyUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] uppercase tracking-widest text-slate-500 hover:text-teal-600 opacity-80">
+              Privacy &amp; cookies
             </a>
-            <a href="https://veiligdouchen.nl/privacybeleid/" target="_blank" rel="noopener noreferrer" className="text-[10px] uppercase tracking-widest text-slate-500 hover:text-teal-600 opacity-80">
-              Cookies
-            </a>
+            <Link href="/login" className="text-[10px] uppercase tracking-widest text-slate-500 hover:text-teal-600 opacity-80">
+              Inloggen medewerkers
+            </Link>
             <a
               href="https://veiligdouchen.nl"
               target="_blank"
@@ -92,31 +120,7 @@ export default function VacatureLayout({ children }: { children: React.ReactNode
       </footer>
 
       {/* Mobile bottom nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 w-full flex justify-around items-center px-4 pb-6 pt-3 bg-white/90 backdrop-blur-xl z-50 rounded-t-3xl shadow-[0_-10px_30px_rgba(0,0,0,0.04)] border-t border-slate-100">
-        <Link href="/vacature" className="flex flex-col items-center justify-center bg-teal-50 text-teal-800 rounded-2xl px-5 py-2">
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
-          <span className="text-[10px] font-medium tracking-wider uppercase mt-1">Vacatures</span>
-        </Link>
-        <a
-          href="https://veiligdouchen.nl"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex flex-col items-center justify-center text-slate-500 px-5 py-2"
-        >
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          <span className="text-[10px] font-medium tracking-wider uppercase mt-1">Over Ons</span>
-        </a>
-        <a href="#solliciteren" className="flex flex-col items-center justify-center text-slate-500 px-5 py-2">
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
-          <span className="text-[10px] font-medium tracking-wider uppercase mt-1">Contact</span>
-        </a>
-      </nav>
+      <MobileNav />
     </div>
   );
 }

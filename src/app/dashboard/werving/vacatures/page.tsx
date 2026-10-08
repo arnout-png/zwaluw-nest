@@ -11,7 +11,7 @@ export default async function VacaturesPage() {
 
   const { data } = await supabaseAdmin
     .from('JobOpening')
-    .select('id, slug, title, description, requirements, location, hoursPerWeek, salaryRange, imageUrl, roleType, isActive, createdAt, updatedAt')
+    .select('id, slug, title, description, requirements, location, hoursPerWeek, salaryRange, imageUrl, benefits, perks, impact, roleType, isActive, createdAt, updatedAt')
     .order('createdAt', { ascending: false });
 
   return (

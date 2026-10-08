@@ -13,6 +13,8 @@ import { CandidateWorkflowOutcomeClient } from './candidate-workflow-outcome-cli
 import { CandidateInterviewOutcomeClient } from './candidate-interview-outcome-client';
 import { CandidateDeleteClient } from './candidate-delete-client';
 import { CandidateDetailTabs } from './candidate-detail-client';
+import { CandidateScreeningInviteClient } from './candidate-screening-invite-client';
+import { resolveCvObject } from '@/lib/cv-storage';
 import {
   getActiveScreeningScript,
   getScreeningAnswers,
@@ -45,6 +47,26 @@ const STATUS_COLORS: Record<CandidateStatus, string> = {
   HIRED: 'bg-green-500/10 text-green-400',
   REJECTED: 'bg-red-500/10 text-red-400',
 };
+
+const LEAD_SOURCE_LABELS: Record<string, string> = {
+  FACEBOOK: 'Facebook/Instagram',
+  LINKEDIN: 'LinkedIn',
+  INDEED: 'Indeed',
+  GOOGLE: 'Google',
+  REFERRAL: 'Referral',
+  WEBSITE: 'Website',
+  MANUAL: 'Handmatig',
+  OTHER: 'Overig',
+};
+
+/**
+ * Hele dagen tussen nu en `iso` (positief = in de toekomst). Buiten de
+ * component: een Server Component rendert één keer per request, dus "nu" is
+ * hier gewoon het requestmoment.
+ */
+function daysFromNow(iso: string, round: (n: number) => number = Math.floor): number {
+  return round((new Date(iso).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+}
 
 const STAGE_ORDER: CandidateStatus[] = ['NEW_LEAD', 'CONTACTED', 'PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED'];
 
@@ -92,7 +114,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
 
   const roleType = candidate.jobOpening?.roleType ?? null;
 
-  const [screeningScript, screeningAnswers, interviewChecklist, checklistResults, callLogs, contractGuidelineRes] =
+  const [screeningScript, screeningAnswers, interviewChecklist, checklistResults, callLogs, contractGuidelineRes, applicationRes] =
     await Promise.all([
       getActiveScreeningScript(roleType),
       getScreeningAnswers(id),
@@ -102,7 +124,34 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
       roleType
         ? supabaseAdmin.from('ContractGuideline').select('content').eq('roleType', roleType).single()
         : Promise.resolve({ data: null }),
+      // Sollicitatiegegevens die getCandidate() niet ophaalt (adres, cv, toestemming).
+      supabaseAdmin
+        .from('Candidate')
+        .select('cvUrl, street, postalCode, city, linkedinUrl, consentDate, prescreeningExpiresAt, deletedAt')
+        .eq('id', id)
+        .maybeSingle(),
     ]);
+
+  const application = (applicationRes.data ?? {}) as {
+    cvUrl?: string | null;
+    street?: string | null;
+    postalCode?: string | null;
+    city?: string | null;
+    linkedinUrl?: string | null;
+    consentDate?: string | null;
+    prescreeningExpiresAt?: string | null;
+    deletedAt?: string | null;
+  };
+  const hasCv = !!resolveCvObject(application.cvUrl);
+  const canOpenCv = ['ADMIN', 'MANAGER'].includes(session.role);
+  const address = [
+    application.street,
+    [application.postalCode, application.city].filter(Boolean).join(' '),
+  ].filter((v) => v && v.trim()).join(', ');
+  const showScreeningInvite =
+    ['ADMIN', 'MANAGER'].includes(session.role) &&
+    ['NEW_LEAD', 'CONTACTED', 'PRE_SCREENING'].includes(candidate.status) &&
+    !application.deletedAt;
 
   const contractGuideline = (contractGuidelineRes.data as { content?: string } | null)?.content ?? null;
 
@@ -136,12 +185,12 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
   }
 
   const consentDaysLeft = candidate.consentExpiresAt
-    ? Math.ceil((new Date(candidate.consentExpiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    ? daysFromNow(candidate.consentExpiresAt, Math.ceil)
     : null;
 
   const candidateName = `${candidate.firstName ?? ''} ${candidate.lastName ?? ''}`.trim();
   const lastCall = callLogs[0] ?? null;
-  const lastCallDays = lastCall ? Math.floor((Date.now() - new Date(lastCall.createdAt).getTime()) / (1000 * 60 * 60 * 24)) : null;
+  const lastCallDays = lastCall ? -daysFromNow(lastCall.createdAt, Math.ceil) : null;
 
   // Visibility flags
   const showScreening = ['PRE_SCREENING', 'SCREENING_DONE', 'INTERVIEW', 'RESERVE_BANK', 'HIRED'].includes(candidate.status);
@@ -176,9 +225,12 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-semibold text-white">{candidate.firstName} {candidate.lastName}</h1>
-              <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLORS[candidate.status]}`}>
-                {STATUS_LABELS[candidate.status]}
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLORS[candidate.status] ?? 'bg-[#363848] text-[#9ca3af]'}`}>
+                {STATUS_LABELS[candidate.status] ?? candidate.status}
               </span>
+              {application.deletedAt && (
+                <span className="rounded-full bg-red-500/10 px-2.5 py-0.5 text-xs font-semibold text-red-400">In prullenbak</span>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-2 mt-1.5">
               {candidate.jobOpening?.roleType && (
@@ -188,11 +240,27 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
                 <span className="text-xs text-[#9ca3af]">· {candidate.jobOpening.title}</span>
               )}
               {candidate.leadSource && (
-                <span className="text-xs text-[#6b7280]">· {candidate.leadSource}</span>
+                <span className="text-xs text-[#6b7280]">
+                  · {LEAD_SOURCE_LABELS[candidate.leadSource] ?? candidate.leadSource}
+                  {candidate.leadCampaignId && !candidate.leadCampaignId.startsWith('l:') ? ` (${candidate.leadCampaignId})` : ''}
+                </span>
               )}
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {hasCv && canOpenCv && (
+              <a
+                href={`/api/candidates/${candidate.id}/cv`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#68b0a6] px-3 py-1.5 text-xs font-semibold text-[#14151b] hover:bg-[#7ec4ba] transition-colors"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                CV bekijken
+              </a>
+            )}
             <CandidateDeleteClient candidateId={candidate.id} candidateName={candidateName} />
           </div>
         </div>
@@ -227,6 +295,24 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
               {new Date(candidate.createdAt).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
             </p>
           </div>
+          <div>
+            <p className="text-[10px] text-[#6b7280] uppercase tracking-wide">Woonadres</p>
+            <p className="text-sm text-[#e8e9ed]">{address || candidate.location || '—'}</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-[#6b7280] uppercase tracking-wide">CV</p>
+            {hasCv ? (
+              canOpenCv ? (
+                <a href={`/api/candidates/${candidate.id}/cv`} target="_blank" rel="noopener noreferrer" className="text-sm text-[#68b0a6] hover:underline">
+                  Openen
+                </a>
+              ) : (
+                <p className="text-sm text-[#e8e9ed]">Aanwezig</p>
+              )
+            ) : (
+              <p className="text-sm text-[#9ca3af] italic">Geen</p>
+            )}
+          </div>
           {consentDaysLeft !== null && (
             <div>
               <p className="text-[10px] text-[#6b7280] uppercase tracking-wide">AVG consent</p>
@@ -260,6 +346,15 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
                   candidateEmail={candidate.email ?? null}
                   initialCallLogs={callLogs}
                 />
+
+                {showScreeningInvite && (
+                  <CandidateScreeningInviteClient
+                    candidateId={candidate.id}
+                    hasEmail={!!candidate.email && !/\.local$/i.test(candidate.email)}
+                    hasPhone={!!candidate.phone}
+                    activeUntil={application.prescreeningExpiresAt ?? null}
+                  />
+                )}
 
                 {appointmentDetails && (
                   <div className="rounded-xl border border-blue-500/30 bg-[#252732] p-5">
