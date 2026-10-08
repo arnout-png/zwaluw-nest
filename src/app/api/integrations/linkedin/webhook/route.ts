@@ -14,17 +14,24 @@ import type { LinkedInLeadFormResponse } from '@/lib/linkedin';
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
 
-  // Verify signature if secret is configured
+  // Zonder geheim kunnen we niet controleren dat het verzoek van LinkedIn komt.
+  // Voorheen werd de handtekening dan overgeslagen en kon iedereen op internet
+  // kandidaten (met consentGiven=true) aanmaken. Nu: fail closed.
+  if (!process.env.LINKEDIN_WEBHOOK_SECRET) {
+    return new Response(JSON.stringify({ error: 'LinkedIn-webhook is niet geconfigureerd.' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   const signature = req.headers.get('X-Li-Signature') ?? req.headers.get('x-li-signature');
-  if (process.env.LINKEDIN_WEBHOOK_SECRET) {
-    const valid = await verifyLinkedInWebhookSignature(rawBody, signature ?? '');
-    if (!valid) {
-      console.warn('[LinkedIn webhook] Invalid signature');
-      return new Response(JSON.stringify({ error: 'Invalid signature' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+  const valid = await verifyLinkedInWebhookSignature(rawBody, signature ?? '');
+  if (!valid) {
+    console.warn('[LinkedIn webhook] Invalid signature');
+    return new Response(JSON.stringify({ error: 'Invalid signature' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   let payload: unknown;
