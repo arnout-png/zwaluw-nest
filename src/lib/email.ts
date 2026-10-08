@@ -156,21 +156,6 @@ function btn(label: string, url: string) {
   return `<a href="${esc(url)}" style="display:inline-block;margin-top:20px;padding:12px 24px;background:#68b0a6;color:#14151b;font-size:14px;font-weight:600;text-decoration:none;border-radius:8px;">${label}</a>`;
 }
 
-/** HTML-escape voor waarden die van buiten komen (namen, e-mailadressen, vrije tekst). */
-export function esc(value: string | null | undefined): string {
-  return (value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-/** Vrije tekst (bijv. een aangepaste intro uit de automatiseringsinstellingen) veilig als HTML. */
-function escMultiline(value: string): string {
-  return esc(value).replace(/\n/g, '<br />');
-}
-
 /** Afzendernaam en contactgegevens in mails aan sollicitanten. */
 export const CANDIDATE_FROM_NAME = 'Zwaluw Comfortsanitair';
 const CANDIDATE_CONTACT_EMAIL = 'info@veiligdouchen.nl';
