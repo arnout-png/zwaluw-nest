@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase';
+import { addDays, amsterdamDateString, amsterdamMidnightUtc } from '@/lib/dates';
 import type {
   EmployeeWithProfile,
   Candidate,
@@ -525,9 +526,10 @@ export async function getContractsExpiringSoon(): Promise<ContractWithEmployee[]
 
 export async function getDashboardStats(): Promise<DashboardStats> {
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const today = new Date();
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
-  const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString();
+  // "Vandaag" = de Nederlandse kalenderdag (server draait in UTC)
+  const todayNL = amsterdamDateString();
+  const todayStart = amsterdamMidnightUtc(todayNL).toISOString();
+  const todayEnd = amsterdamMidnightUtc(addDays(todayNL, 1)).toISOString();
 
   const [openCandidates, newLeads, interviews, todayCallbacks] = await Promise.all([
     supabaseAdmin
@@ -582,9 +584,9 @@ export async function getRecentCandidates(limit = 5): Promise<Candidate[]> {
 }
 
 export async function getTodayCallbacks(): Promise<{ candidateId: string; candidateName: string; phone?: string | null; callbackAt: string }[]> {
-  const today = new Date();
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
-  const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString();
+  const todayNL = amsterdamDateString();
+  const todayStart = amsterdamMidnightUtc(todayNL).toISOString();
+  const todayEnd = amsterdamMidnightUtc(addDays(todayNL, 1)).toISOString();
 
   const { data, error } = await supabaseAdmin
     .from('CallLog')
@@ -615,9 +617,9 @@ export async function getTodayCallbacks(): Promise<{ candidateId: string; candid
 }
 
 export async function getUpcomingCallbacks(days = 7): Promise<{ candidateId: string; candidateName: string; phone?: string | null; callbackAt: string; notes?: string | null }[]> {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-  const futureEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days + 1).toISOString();
+  const todayNL = amsterdamDateString();
+  const todayStart = amsterdamMidnightUtc(todayNL).toISOString();
+  const futureEnd = amsterdamMidnightUtc(addDays(todayNL, days + 1)).toISOString();
 
   const { data, error } = await supabaseAdmin
     .from('CallLog')

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
+import { amsterdamDateString, parseDbTimestamp } from '@/lib/dates';
 
 interface UserActivityMetrics {
   userId: string;
@@ -22,18 +23,31 @@ export async function GET(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Niet geautoriseerd.' }, { status: 401 });
   if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
 
-  const days = Number(new URL(request.url).searchParams.get('days') || 30);
+  const days = Math.min(Math.max(Number(new URL(request.url).searchParams.get('days') || 30), 1), 365);
   const since = new Date(Date.now() - days * 86400000).toISOString();
 
-  // Fetch all audit logs in period
-  const { data: logs } = await supabaseAdmin
-    .from('AuditLog')
-    .select('userId, action, createdAt')
-    .gte('createdAt', since)
-    .not('userId', 'is', null)
-    .order('createdAt', { ascending: true });
+  // Fetch all audit logs in period — in pagina's: PostgREST levert maximaal
+  // 1000 rijen per verzoek, en oplopend gesorteerd vielen dan juist de
+  // nieuwste acties weg.
+  const logs: { userId: string; action: string; createdAt: string }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabaseAdmin
+      .from('AuditLog')
+      .select('userId, action, createdAt')
+      .gte('createdAt', since)
+      .not('userId', 'is', null)
+      .neq('action', 'LOGIN_FAILED')
+      .order('createdAt', { ascending: true })
+      .range(from, from + 999);
+    if (error) {
+      console.error('[user-activity] AuditLog query error:', error.message);
+      return NextResponse.json({ error: 'Kan activiteit niet ophalen.' }, { status: 500 });
+    }
+    logs.push(...((data ?? []) as { userId: string; action: string; createdAt: string }[]));
+    if (!data || data.length < 1000) break;
+  }
 
-  if (!logs?.length) return NextResponse.json({ data: [], period: days });
+  if (!logs.length) return NextResponse.json({ data: [], period: days });
 
   // Fetch all users
   const { data: users } = await supabaseAdmin
@@ -47,7 +61,7 @@ export async function GET(request: NextRequest) {
 
   // Group logs by user
   const byUser = new Map<string, { action: string; createdAt: string }[]>();
-  for (const log of logs as { userId: string; action: string; createdAt: string }[]) {
+  for (const log of logs) {
     if (!byUser.has(log.userId)) byUser.set(log.userId, []);
     byUser.get(log.userId)!.push({ action: log.action, createdAt: log.createdAt });
   }
@@ -76,7 +90,7 @@ export async function GET(request: NextRequest) {
     let lastActionTime: number | null = null;
 
     for (const log of userLogs) {
-      const t = new Date(log.createdAt).getTime();
+      const t = parseDbTimestamp(log.createdAt)?.getTime() ?? 0;
 
       if (sessionStart === null) {
         // Start new session
@@ -103,13 +117,14 @@ export async function GET(request: NextRequest) {
     const avgSessionMinutes = sessionCount > 0 ? Math.round(totalActiveMinutes / sessionCount) : 0;
 
     // Active days
-    const activeDaysSet = new Set(userLogs.map(l => l.createdAt.split('T')[0]));
+    const dayOf = (ts: string) => amsterdamDateString(parseDbTimestamp(ts) ?? new Date(0));
+    const activeDaysSet = new Set(userLogs.map(l => dayOf(l.createdAt)));
 
     // Daily activity breakdown
     const dailyMap = new Map<string, { actions: number; firstAction: number; lastAction: number }>();
     for (const log of userLogs) {
-      const day = log.createdAt.split('T')[0];
-      const t = new Date(log.createdAt).getTime();
+      const day = dayOf(log.createdAt);
+      const t = parseDbTimestamp(log.createdAt)?.getTime() ?? 0;
       if (!dailyMap.has(day)) {
         dailyMap.set(day, { actions: 0, firstAction: t, lastAction: t });
       }
@@ -127,7 +142,8 @@ export async function GET(request: NextRequest) {
       }))
       .sort((a, b) => b.date.localeCompare(a.date));
 
-    const lastSeen = userLogs.length > 0 ? userLogs[userLogs.length - 1].createdAt : null;
+    // Als ISO-string mét zone, zodat de browser de juiste lokale tijd toont.
+    const lastSeen = userLogs.length > 0 ? parseDbTimestamp(userLogs[userLogs.length - 1].createdAt)?.toISOString() ?? null : null;
 
     results.push({
       userId,

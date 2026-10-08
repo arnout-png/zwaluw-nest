@@ -74,3 +74,12 @@ export function countWorkdays(start: string, end: string): number {
 export function isIsoDate(value: unknown): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
 }
+
+/** Het UTC-moment waarop de gegeven Amsterdamse kalenderdag (YYYY-MM-DD) begint. */
+export function amsterdamMidnightUtc(date: string): Date {
+  for (const offsetHours of [-2, -1, 0]) {
+    const d = new Date(Date.parse(`${date}T00:00:00Z`) + offsetHours * 3_600_000);
+    if (amsterdamDateString(d) === date && amsterdamHour(d) === 0) return d;
+  }
+  return new Date(`${date}T00:00:00Z`);
+}
