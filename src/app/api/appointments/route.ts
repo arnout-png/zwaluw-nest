@@ -30,13 +30,20 @@ export async function GET(request: NextRequest) {
     )
     .order('startTime');
 
-  // MONTEUR and ADVISEUR can only see own appointments
-  if (session.role === 'MONTEUR' || session.role === 'ADVISEUR') {
+  // Alleen planning-rollen zien de agenda van iedereen. Alle andere rollen
+  // (voorheen alleen MONTEUR/ADVISEUR) zien uitsluitend hun eigen afspraken —
+  // CALLCENTER/BACKOFFICE/WAREHOUSE kregen anders alle klantadressen en
+  // telefoonnummers te zien.
+  if (!['ADMIN', 'MANAGER', 'PLANNER'].includes(session.role)) {
     const epId = await getEPId(session.userId);
     if (epId) query = query.eq('employeeProfileId', epId);
     else return NextResponse.json({ data: [] });
   } else if (employeeProfileId) {
     query = query.eq('employeeProfileId', employeeProfileId);
+  }
+
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return NextResponse.json({ error: 'Ongeldige datum.' }, { status: 400 });
   }
 
   if (date) {
@@ -125,19 +132,31 @@ export async function POST(request: NextRequest) {
   let resolvedStart = startTime;
   let resolvedEnd = endTime;
 
-  if (!resolvedDate && scheduledAt) {
-    resolvedDate = scheduledAt.split('T')[0];
-    resolvedStart = scheduledAt;
-    const durationMin = Number(duration) || 60;
-    const endMs = new Date(scheduledAt).getTime() + durationMin * 60 * 1000;
-    resolvedEnd = new Date(endMs).toISOString();
+  if (!resolvedDate && typeof scheduledAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(scheduledAt)) {
+    // Afspraaktijden zijn "wandkloktijd" (kolom zonder tijdzone). Reken de
+    // eindtijd uit zonder de tijdzone van de server mee te laten tellen.
+    const wallClock = scheduledAt.slice(0, 16);
+    resolvedDate = wallClock.slice(0, 10);
+    resolvedStart = `${wallClock}:00`;
+    const durationMin = Math.min(Math.max(Number(duration) || 60, 5), 24 * 60);
+    const endMs = Date.parse(`${wallClock}:00Z`) + durationMin * 60 * 1000;
+    resolvedEnd = new Date(endMs).toISOString().slice(0, 19);
   }
 
-  if (!employeeProfileId || !resolvedTitle || !resolvedDate) {
+  if (!employeeProfileId || !resolvedTitle || !resolvedDate || !resolvedStart || !resolvedEnd) {
     return NextResponse.json(
-      { error: 'Medewerker, titel en datum zijn verplicht.' },
+      { error: 'Medewerker, titel, datum en tijd zijn verplicht.' },
       { status: 400 }
     );
+  }
+
+  const { data: profile } = await supabaseAdmin
+    .from('EmployeeProfile')
+    .select('id')
+    .eq('id', employeeProfileId)
+    .maybeSingle();
+  if (!profile) {
+    return NextResponse.json({ error: 'Medewerker heeft geen (geldig) profiel.' }, { status: 400 });
   }
 
   const { data, error } = await supabaseAdmin

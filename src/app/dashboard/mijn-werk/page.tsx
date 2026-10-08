@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 import { getAppointments } from '@/lib/data';
 import { supabaseAdmin } from '@/lib/supabase';
+import { amsterdamDateString } from '@/lib/dates';
 import { MijnWerkClient } from './mijn-werk-client';
 
 export default async function MijnWerkPage() {
@@ -13,11 +14,14 @@ export default async function MijnWerkPage() {
     .from('EmployeeProfile')
     .select('id')
     .eq('userId', session.userId)
-    .single();
+    .maybeSingle();
   const employeeProfileId = profileRow?.id as string | undefined;
 
-  const today = new Date().toISOString().split('T')[0];
-  const appointments = await getAppointments(today, employeeProfileId);
+  // "Vandaag" in Nederland (de server draait in UTC; tussen 00:00 en 02:00
+  // toonde de pagina anders de klussen van gisteren). Zonder profiel niets
+  // tonen: getAppointments(datum, undefined) geeft de afspraken van iedereen.
+  const today = amsterdamDateString();
+  const appointments = employeeProfileId ? await getAppointments(today, employeeProfileId) : [];
 
   return <MijnWerkClient appointments={appointments} session={session} />;
 }

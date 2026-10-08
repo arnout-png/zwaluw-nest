@@ -112,15 +112,23 @@ export function LeaveRequestForm({ onSuccess, onCancel, defaultType = 'VACATION'
       {days > 0 && (
         <p className="text-xs text-[#68b0a6]">{days} werkdag{days !== 1 ? 'en' : ''}</p>
       )}
+      {type === 'SICK' && (
+        <p className="text-xs text-[#9ca3af]">
+          Vul als einddatum de dag in waarop je verwacht weer te werken. Vermeld geen medische informatie
+          (zoals de aard van je ziekte) — dat mag de werkgever volgens de AVG niet vastleggen.
+        </p>
+      )}
 
       {/* Reason */}
       <div>
-        <label className="mb-1.5 block text-xs font-medium text-[#9ca3af]">Reden (optioneel)</label>
+        <label className="mb-1.5 block text-xs font-medium text-[#9ca3af]">
+          {type === 'SICK' ? 'Opmerking (optioneel, geen medische info)' : 'Reden (optioneel)'}
+        </label>
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={2}
-          placeholder="Voeg een toelichting toe..."
+          placeholder={type === 'SICK' ? 'Bijv. bereikbaarheid of overdracht van werk...' : 'Voeg een toelichting toe...'}
           className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white placeholder-[#9ca3af] focus:border-[#68b0a6] focus:outline-none resize-none"
         />
       </div>

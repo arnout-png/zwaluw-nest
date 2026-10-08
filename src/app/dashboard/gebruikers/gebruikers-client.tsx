@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import type { UserWithPhone } from './page';
 import type { Role, UserPermissions } from '@/types';
 import { parsePermissions, defaultPermissions } from '@/types';
+import { NAV_ACCESS } from '@/lib/nav';
 
 const ROLES: Role[] = ['ADMIN', 'MANAGER', 'PLANNER', 'ADVISEUR', 'MONTEUR', 'CALLCENTER', 'BACKOFFICE', 'WAREHOUSE'];
 
@@ -30,21 +31,8 @@ const ROLE_COLORS: Record<Role, string> = {
   WAREHOUSE: 'bg-yellow-500/10 text-yellow-400',
 };
 
-// All configurable nav items (same as sidebar NAV_ITEMS, with role defaults)
-const ALL_NAV_ITEMS: { href: string; label: string; roles: Role[] }[] = [
-  { href: '/dashboard', label: 'Dashboard', roles: ['ADMIN', 'PLANNER', 'ADVISEUR', 'CALLCENTER', 'BACKOFFICE', 'WAREHOUSE'] },
-  { href: '/dashboard/werving', label: 'Werving', roles: ['ADMIN'] },
-  { href: '/dashboard/werving/templates', label: 'Scripts & Checklists', roles: ['ADMIN'] },
-  { href: '/dashboard/werving/vacatures', label: 'Vacatures', roles: ['ADMIN'] },
-  { href: '/dashboard/agenda', label: 'Agenda', roles: ['ADMIN', 'PLANNER'] },
-  { href: '/dashboard/mijn-werk', label: 'Mijn Werk', roles: ['MONTEUR'] },
-  { href: '/dashboard/mijn-verlof', label: 'Mijn Verlof', roles: ['MONTEUR', 'ADVISEUR', 'CALLCENTER', 'BACKOFFICE', 'WAREHOUSE'] },
-  { href: '/dashboard/rapportage', label: 'Rapportage', roles: ['ADMIN', 'PLANNER'] },
-  { href: '/dashboard/profiel', label: 'Mijn profiel', roles: ['ADMIN', 'PLANNER', 'ADVISEUR', 'MONTEUR', 'CALLCENTER', 'BACKOFFICE', 'WAREHOUSE'] },
-  { href: '/dashboard/gebruikers', label: 'Gebruikers', roles: ['ADMIN'] },
-  { href: '/dashboard/instellingen', label: 'Instellingen', roles: ['ADMIN'] },
-  { href: '/dashboard/handleiding', label: 'Handleiding', roles: ['ADMIN', 'PLANNER', 'ADVISEUR', 'MONTEUR', 'CALLCENTER', 'BACKOFFICE', 'WAREHOUSE'] },
-];
+// Zelfde bron als de sidebar en de paginacontroles (src/lib/nav.ts)
+const ALL_NAV_ITEMS = NAV_ACCESS;
 
 const PERMISSION_FLAGS: { key: keyof Omit<UserPermissions, 'extraNav'>; label: string; description: string }[] = [
   { key: 'canViewAllCandidates', label: 'Alle kandidaten inzien', description: 'Niet alleen eigen toegewezen kandidaten' },
@@ -365,7 +353,7 @@ export function GebruikersClient({ initialUsers }: Props) {
           const currentRole = (editingId === u.id ? editForm.role : u.role) as Role;
           const perms = editForm.permissions ?? defaultPermissions();
           const navItemsForRole = ALL_NAV_ITEMS.filter(n => n.roles.includes(currentRole));
-          const extraNavOptions = ALL_NAV_ITEMS.filter(n => !n.roles.includes(currentRole));
+          const extraNavOptions = ALL_NAV_ITEMS.filter(n => n.grantable && !n.roles.includes(currentRole));
 
           return (
             <div key={u.id} className="rounded-xl border border-[#363848] bg-[#252732]">

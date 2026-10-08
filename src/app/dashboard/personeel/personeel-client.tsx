@@ -8,6 +8,7 @@ const ROLE_OPTIONS = [
   { value: 'ADVISEUR', label: 'Adviseur' },
   { value: 'MONTEUR', label: 'Monteur' },
   { value: 'PLANNER', label: 'Planner' },
+  { value: 'MANAGER', label: 'Manager' },
   { value: 'CALLCENTER', label: 'Callcenter' },
   { value: 'BACKOFFICE', label: 'Backoffice' },
   { value: 'WAREHOUSE', label: 'Magazijn' },

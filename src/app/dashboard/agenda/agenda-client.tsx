@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { WeekCalendar } from '@/components/agenda/week-calendar';
 import type { Appointment, EmployeeWithProfile } from '@/types';
