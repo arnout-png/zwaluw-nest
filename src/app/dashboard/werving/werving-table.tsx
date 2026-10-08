@@ -38,7 +38,11 @@ const SOURCE_LABELS: Record<string, string> = {
   FACEBOOK: 'Facebook',
   LINKEDIN: 'LinkedIn',
   INDEED: 'Indeed',
+  GOOGLE: 'Google',
+  REFERRAL: 'Referral',
+  WEBSITE: 'Website',
   MANUAL: 'Handmatig',
+  OTHER: 'Overig',
 };
 
 type SortCol = 'name' | 'status' | 'phone' | 'email' | 'location' | 'age' | 'salaryExpectation' | 'vacature' | 'leadSource' | 'assignedTo' | 'createdAt' | 'stageUpdatedAt';

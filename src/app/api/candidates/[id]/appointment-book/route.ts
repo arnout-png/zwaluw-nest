@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { sendAppointmentConfirmationCandidate, sendAppointmentNotificationInternal } from '@/lib/email';
 import { sendAppointmentSMS } from '@/lib/sms';
 import { logAudit, getIp } from '@/lib/audit';
+import { isDeliverableEmail } from '@/lib/recruitment';
 
 export async function POST(
   request: NextRequest,
@@ -17,7 +18,7 @@ export async function POST(
 
   const { id: candidateId } = await params;
   const body = await request.json() as { date?: string; time?: string; location?: string; interviewerId?: string };
-  const { date, time, location = 'Kantoor Zwaluw, Oss', interviewerId } = body;
+  const { date, time, location = 'Zwaluw Comfortsanitair, Nijverheidsweg 25, Zeewolde', interviewerId } = body;
 
   if (!date || !time) {
     return NextResponse.json({ error: 'Datum en tijd zijn verplicht.' }, { status: 400 });
@@ -115,17 +116,20 @@ export async function POST(
   });
   const firstName = candidate.name.split(' ')[0];
 
-  // 2. Email to candidate (graceful — no crash if Resend not configured)
-  try {
-    await sendAppointmentConfirmationCandidate({
-      to: candidate.email,
-      candidateName: firstName,
-      date: datumNL,
-      time,
-      location,
-    });
-  } catch (e) {
-    console.error('Afspraak e-mail kandidaat mislukt:', e);
+  // 2. Email to candidate (graceful — no crash if Gmail not configured).
+  // Placeholder-adressen uit Facebook-imports (…@sheets.local) slaan we over.
+  if (isDeliverableEmail(candidate.email)) {
+    try {
+      await sendAppointmentConfirmationCandidate({
+        to: candidate.email,
+        candidateName: firstName,
+        date: datumNL,
+        time,
+        location,
+      });
+    } catch (e) {
+      console.error('Afspraak e-mail kandidaat mislukt:', e);
+    }
   }
 
   // 3. Internal notification email to interviewer

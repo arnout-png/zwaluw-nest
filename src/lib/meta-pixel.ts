@@ -4,11 +4,10 @@
  * /vacature-sectie; NIET op het interne portal (dat is `noindex` en hoort
  * geen marketing-pixel te dragen — zie src/app/layout.tsx).
  *
- * Bewust "kaal": browser-Pixel met PageView + één conversie-event bij een
- * verzonden sollicitatie. GEEN Advanced Matching (gehashte PII naar Meta) en
- * GEEN server-side Conversions API. Beide zijn de logische vervolgstap voor
- * betere match-quality/attributie — zie de BrochureFlow-referentie in
- * packages/brochure-ui (BrochureForm.tsx + lib/lead-api.ts).
+ * Browser-Pixel met PageView + één conversie-event (SubmitApplication) bij een
+ * verzonden sollicitatie. Geen Advanced Matching in de browser; de gehashte
+ * gegevens gaan server-side via de Conversions API mee (src/lib/meta-capi.ts),
+ * met hetzelfde event_id zodat Meta dedupliceert.
  *
  * Pixel-ID komt uit env met een hardcoded fallback zodat de Pixel altijd
  * laadt, ook zonder Vercel-env — identiek aan hoe BrochureFlow het doet.
@@ -33,9 +32,30 @@ declare global {
  * server-side naar de Conversions API stuurt. Meta dedupliceert daarop, zodat de
  * conversie één keer telt ook als beide kanalen aankomen. Zie src/lib/meta-capi.ts.
  */
-export function trackApplicationSubmit(eventId: string): void {
+export function trackApplicationSubmit(eventId: string, jobTitle?: string): void {
   if (typeof window === 'undefined' || !window.fbq) return;
-  window.fbq('track', 'SubmitApplication', {}, { eventID: eventId });
+  try {
+    window.fbq('track', 'SubmitApplication', jobTitle ? { content_name: jobTitle } : {}, { eventID: eventId });
+  } catch {
+    /* een kapotte Pixel mag de bedankpagina niet breken */
+  }
+}
+
+/**
+ * Uniek event-id voor Pixel/CAPI-deduplicatie. `crypto.randomUUID` bestaat
+ * niet in oudere Android-WebViews (o.a. de Facebook in-app browser op oudere
+ * toestellen) — zonder vangnet brak daar het hele verzenden van het formulier.
+ */
+export function makeEventId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {
+    /* val terug op de variant hieronder */
+  }
+  const rand = () => Math.random().toString(36).slice(2, 10);
+  return `${Date.now().toString(36)}-${rand()}-${rand()}-${rand()}`;
 }
 
 /**

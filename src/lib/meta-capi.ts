@@ -6,16 +6,24 @@
  * als het browserevent, zodat Meta dedupliceert en de conversie één keer telt.
  *
  * Volgt de canonieke referentie in SwiftFlow (supabase/functions/meta-capi):
- * SHA-256 over lowercase+trim, Graph API v21.0, falen is nooit fataal voor de
- * sollicitatie zelf. Aanvullend sturen we hier client_ip_address,
- * client_user_agent en fbp/fbc mee — die verhogen de match quality flink.
+ * SHA-256 over lowercase+trim, falen is nooit fataal voor de sollicitatie
+ * zelf. Aanvullend sturen we hier client_ip_address, client_user_agent en
+ * fbp/fbc mee — die verhogen de match quality flink.
  *
  * Zet META_CAPI_ACCESS_TOKEN in Vercel; zonder token is dit een no-op.
+ *
+ * Graph-versie: Marketing API-versies (waar de Conversions API onder valt)
+ * worden na verloop van tijd uitgefaseerd; de eerder hardcoded v21.0 (okt 2024)
+ * liep dat risico. Overschrijfbaar met META_GRAPH_API_VERSION (env + redeploy)
+ * zonder codewijziging.
  */
 import { createHash } from 'crypto';
 import { META_PIXEL_ID } from './meta-pixel';
 
-const GRAPH_API_VERSION = 'v21.0';
+export const GRAPH_API_VERSION = process.env.META_GRAPH_API_VERSION || 'v25.0';
+
+/** Meta mag een sollicitatie nooit ophouden. */
+const CAPI_TIMEOUT_MS = 5000;
 
 /** True zodra de Conversions API bruikbaar is. */
 export function isCapiConfigured(): boolean {
@@ -44,8 +52,8 @@ function normalizePhone(raw: string): string | null {
  * Meta's `fbc`-formaat reconstrueren uit een rauwe fbclid, voor het geval de
  * _fbc-cookie ontbreekt (bijv. als de Pixel geblokkeerd werd).
  */
-function fbcFromFbclid(fbclid: string): string {
-  return `fb.1.${Date.now()}.${fbclid}`;
+function fbcFromFbclid(fbclid: string, clickedAt?: number | null): string {
+  return `fb.1.${clickedAt && Number.isFinite(clickedAt) ? Math.floor(clickedAt) : Date.now()}.${fbclid}`;
 }
 
 export interface ApplicationCapiEvent {
@@ -64,6 +72,10 @@ export interface ApplicationCapiEvent {
   fbp?: string | null;
   fbc?: string | null;
   fbclid?: string | null;
+  /** Moment (ms) waarop de fbclid-landing plaatsvond; voor een correct fbc-formaat. */
+  fbclidCapturedAt?: number | null;
+  /** Vacaturetitel, als content_name in custom_data (handig in Events Manager). */
+  jobTitle?: string | null;
 }
 
 /**
@@ -96,7 +108,7 @@ export async function sendApplicationCapiEvent(event: ApplicationCapiEvent): Pro
   if (event.clientUserAgent) userData.client_user_agent = event.clientUserAgent;
   if (event.fbp) userData.fbp = event.fbp;
 
-  const fbc = event.fbc ?? (event.fbclid ? fbcFromFbclid(event.fbclid) : null);
+  const fbc = event.fbc ?? (event.fbclid ? fbcFromFbclid(event.fbclid, event.fbclidCapturedAt) : null);
   if (fbc) userData.fbc = fbc;
 
   // META_CAPI_TEST_EVENT_CODE: alleen zetten om te verifieren. Events met een
@@ -114,6 +126,7 @@ export async function sendApplicationCapiEvent(event: ApplicationCapiEvent): Pro
         action_source: 'website',
         event_source_url: event.sourceUrl,
         user_data: userData,
+        ...(event.jobTitle ? { custom_data: { content_name: event.jobTitle } } : {}),
       },
     ],
     access_token: accessToken,
@@ -127,6 +140,7 @@ export async function sendApplicationCapiEvent(event: ApplicationCapiEvent): Pro
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(CAPI_TIMEOUT_MS),
       }
     );
 

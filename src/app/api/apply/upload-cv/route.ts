@@ -1,51 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase';
+import { CV_MAX_BYTES, CV_TYPES, createCvUpload } from '@/lib/cv-storage';
 
-const BUCKET = 'site-images';
-const MAX_SIZE_MB = 10;
-const ALLOWED_TYPES = [
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-];
-
+/**
+ * POST /api/apply/upload-cv — publiek.
+ *
+ * Geeft een eenmalige upload-URL voor de PRIVÉ-bucket `cvs`; de browser zet het
+ * bestand daar zelf neer. Het bestand gaat dus niet door deze functie heen:
+ * Vercel kapt request-bodies boven ~4,5 MB af, terwijl het formulier 10 MB
+ * belooft (foto's van een cv op een telefoon zijn al snel groter dan 4,5 MB).
+ *
+ * Body: { fileName: string, fileType?: string, fileSize: number }
+ * Antwoord: { ref, signedUrl, token } — `ref` gaat mee met de sollicitatie.
+ *
+ * De bucket zelf dwingt maximaal 10 MB en de toegestane MIME-types af (zie de
+ * setup-SQL in src/lib/cv-storage.ts), dus een client die hier liegt over type
+ * of grootte komt alsnog niet verder.
+ */
 export async function POST(request: NextRequest) {
-  const formData = await request.formData();
-  const file = formData.get('file') as File | null;
-
-  if (!file) {
-    return NextResponse.json({ error: 'Geen bestand ontvangen.' }, { status: 400 });
+  let body: { fileName?: unknown; fileType?: unknown; fileSize?: unknown };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Ongeldige aanvraag.' }, { status: 400 });
   }
 
-  if (file.size > MAX_SIZE_MB * 1024 * 1024) {
-    return NextResponse.json({ error: `Bestand mag maximaal ${MAX_SIZE_MB}MB zijn.` }, { status: 400 });
+  const fileName = typeof body.fileName === 'string' ? body.fileName : '';
+  const fileSize = typeof body.fileSize === 'number' ? body.fileSize : NaN;
+  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+
+  if (!fileName || !CV_TYPES[ext]) {
+    return NextResponse.json(
+      { error: 'Dit bestandstype wordt niet ondersteund. Upload een PDF, Word-bestand of foto (JPG/PNG).' },
+      { status: 400 }
+    );
+  }
+  if (!Number.isFinite(fileSize) || fileSize <= 0) {
+    return NextResponse.json({ error: 'Het bestand lijkt leeg te zijn.' }, { status: 400 });
+  }
+  if (fileSize > CV_MAX_BYTES) {
+    return NextResponse.json({ error: 'Je cv mag maximaal 10 MB zijn.' }, { status: 400 });
   }
 
-  if (!ALLOWED_TYPES.includes(file.type)) {
-    return NextResponse.json({ error: 'Alleen PDF, Word, JPG en PNG zijn toegestaan.' }, { status: 400 });
+  const upload = await createCvUpload(ext);
+  if (!upload.ok) {
+    return NextResponse.json(
+      {
+        error:
+          'Uploaden lukt op dit moment niet. Je kunt zonder cv solliciteren; we vragen er later om.',
+      },
+      { status: 503 }
+    );
   }
 
-  const ext = file.name.split('.').pop()?.toLowerCase() ?? 'pdf';
-  const path = `cvs/${crypto.randomUUID()}.${ext}`;
-
-  const arrayBuffer = await file.arrayBuffer();
-  const { error } = await supabaseAdmin.storage
-    .from(BUCKET)
-    .upload(path, arrayBuffer, {
-      contentType: file.type,
-      upsert: false,
-    });
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  const { data: publicUrlData } = supabaseAdmin.storage
-    .from(BUCKET)
-    .getPublicUrl(path);
-
-  return NextResponse.json({ url: publicUrlData.publicUrl });
+  return NextResponse.json({
+    ref: upload.ref,
+    signedUrl: upload.signedUrl,
+    token: upload.token,
+    contentType: CV_TYPES[ext],
+  });
 }

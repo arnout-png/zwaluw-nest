@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import { sendInterviewInviteEmail, isEmailConfigured } from '@/lib/email';
-import { notifyStageChange } from '@/lib/recruitment';
+import { notifyStageChange, isDeliverableEmail } from '@/lib/recruitment';
 import { logAudit, getIp } from '@/lib/audit';
 
 export async function GET(
@@ -154,7 +154,12 @@ export async function PATCH(
   }
 
   // Send interview invite email when status moves to INTERVIEW
-  if (body.status === 'INTERVIEW' && currentCandidate?.email && isEmailConfigured()) {
+  if (
+    body.status === 'INTERVIEW' &&
+    currentCandidate?.status !== 'INTERVIEW' &&
+    isDeliverableEmail(currentCandidate?.email) &&
+    isEmailConfigured()
+  ) {
     let recruiterName: string | undefined;
     if (currentCandidate.assignedToId) {
       const { data: recruiter } = await supabaseAdmin

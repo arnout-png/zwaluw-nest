@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { JobOpening, VacatureRol } from '@/types';
 import { VACATURE_ROL_LABELS } from '@/types';
 import { ImagePickerModal } from './image-picker';
+import { PUBLIC_SITE_URL } from '@/lib/site-url';
 
 const EMPTY: Partial<JobOpening> = {
   title: '',
@@ -41,7 +42,23 @@ export function VacaturesClient({ initialJobOpenings }: Props) {
   const [error, setError] = useState('');
   const [showImagePicker, setShowImagePicker] = useState(false);
 
-  const appUrl = typeof window !== 'undefined' ? window.location.origin : 'https://zwaluw-portal.vercel.app';
+  // Altijd het publieke domein: deze link gaat naar Facebook en sollicitanten.
+  const appUrl = PUBLIC_SITE_URL;
+  const [copied, setCopied] = useState<string | null>(null);
+
+  async function copyLink(key: string, url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(key);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      /* klembord geblokkeerd — de link staat in beeld */
+    }
+  }
+
+  function facebookUrl(slug: string) {
+    return `${appUrl}/vacature/${slug}?utm_source=facebook&utm_medium=social&utm_campaign=${encodeURIComponent(slug)}`;
+  }
 
   function openNew() {
     setEditing({ ...EMPTY });
@@ -180,14 +197,26 @@ export function VacaturesClient({ initialJobOpenings }: Props) {
 
               {/* Public URL */}
               <div className="mt-3 flex items-center gap-2 rounded-lg bg-[#1e2028] px-3 py-2">
-                <span className="text-xs text-[#9ca3af] truncate flex-1">
+                <a
+                  href={`${appUrl}/vacature/${job.slug}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-[#9ca3af] hover:text-white truncate flex-1"
+                >
                   {appUrl}/vacature/{job.slug}
-                </span>
+                </a>
                 <button
-                  onClick={() => navigator.clipboard.writeText(`${appUrl}/vacature/${job.slug}`)}
+                  onClick={() => copyLink(`${job.id}-plain`, `${appUrl}/vacature/${job.slug}`)}
                   className="text-xs text-[#68b0a6] hover:text-white shrink-0 transition-colors"
                 >
-                  Kopieer
+                  {copied === `${job.id}-plain` ? 'Gekopieerd' : 'Kopieer'}
+                </button>
+                <button
+                  onClick={() => copyLink(`${job.id}-fb`, facebookUrl(job.slug))}
+                  title="Link met utm-tags, zodat sollicitaties als Facebook worden herkend"
+                  className="text-xs text-[#68b0a6] hover:text-white shrink-0 transition-colors"
+                >
+                  {copied === `${job.id}-fb` ? 'Gekopieerd' : 'Facebook-link'}
                 </button>
               </div>
             </div>
@@ -362,7 +391,7 @@ export function VacaturesClient({ initialJobOpenings }: Props) {
                   type="text"
                   value={editing.perks ?? ''}
                   onChange={(e) => setEditing((prev) => ({ ...prev, perks: e.target.value }))}
-                  placeholder="bijv. Lease Auto, Pensioen, Opleidingen, Teamuitjes"
+                  placeholder="bijv. Pensioenregeling, Opleidingen, Teamuitjes"
                   className="w-full rounded-lg border border-[#363848] bg-[#1e2028] px-3 py-2 text-sm text-white focus:border-[#68b0a6] focus:outline-none"
                 />
                 <p className="mt-1 text-[10px] text-[#9ca3af]">Kommagescheiden — verschijnt als tags in groen &ldquo;Extra Perks&rdquo; blok.</p>
