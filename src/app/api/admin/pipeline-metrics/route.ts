@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
   if (session.role !== 'ADMIN') return NextResponse.json({ error: 'Geen toegang.' }, { status: 403 });
 
   const url = new URL(request.url);
-  const days = Number(url.searchParams.get('days') || 90);
+  const days = Math.min(Math.max(Number(url.searchParams.get('days')) || 90, 1), 730);
   const since = new Date(Date.now() - days * 86400000).toISOString();
 
   type CandRow = { id: string; status: string; createdAt: string; stageUpdatedAt: string | null };
@@ -64,22 +64,32 @@ export async function GET(request: NextRequest) {
 
   const candidateIds = candidates.map(c => c.id);
 
-  // Fetch all audit logs for these candidates (STATUS_CHANGE + CALL)
-  const { data: auditLogs } = await supabaseAdmin
-    .from('AuditLog')
-    .select('entityId, action, details, createdAt')
-    .in('entityId', candidateIds)
-    .eq('entity', 'Candidate')
-    .in('action', ['STATUS_CHANGE', 'CALL', 'CREATE'])
-    .order('createdAt', { ascending: true });
-
-  // Fetch call logs for first contact timing
-  const { data: callLogs } = await supabaseAdmin
-    .from('CallLog')
-    .select('candidateId, status, createdAt')
-    .in('candidateId', candidateIds)
-    .in('status', ['BEREIKT', 'VOICEMAIL', 'TERUGBELLEN'])
-    .order('createdAt', { ascending: true });
+  // In blokken van 100 ids: met honderden ids in één in.(...)-filter wordt de
+  // URL te lang en faalt de query stil (lege metrics).
+  const auditLogs: { entityId: string; action: string; details: string | null; createdAt: string }[] = [];
+  const callLogs: { candidateId: string; status: string; createdAt: string }[] = [];
+  for (let i = 0; i < candidateIds.length; i += 100) {
+    const chunk = candidateIds.slice(i, i + 100);
+    const [auditRes, callRes] = await Promise.all([
+      supabaseAdmin
+        .from('AuditLog')
+        .select('entityId, action, details, createdAt')
+        .in('entityId', chunk)
+        .eq('entity', 'Candidate')
+        .in('action', ['STATUS_CHANGE', 'CALL', 'CREATE'])
+        .order('createdAt', { ascending: true }),
+      supabaseAdmin
+        .from('CallLog')
+        .select('candidateId, status, createdAt')
+        .in('candidateId', chunk)
+        .in('status', ['BEREIKT', 'VOICEMAIL', 'TERUGBELLEN'])
+        .order('createdAt', { ascending: true }),
+    ]);
+    auditLogs.push(...((auditRes.data ?? []) as typeof auditLogs));
+    callLogs.push(...((callRes.data ?? []) as typeof callLogs));
+  }
+  auditLogs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  callLogs.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   // Build timeline per candidate
   const timeline = new Map<string, { createdAt: string; firstContact?: string; preScreening?: string; screeningDone?: string; interview?: string; outcome?: string; outcomeStatus?: string }>();

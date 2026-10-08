@@ -376,9 +376,13 @@ async function runDailyChecks(request: NextRequest) {
       .eq('isActive', true);
 
     if ((openVacancies ?? 0) > 0) {
+      // Alleen kandidaten die niet in de prullenbak staan: in september 2026
+      // kwamen 552 oude leads opnieuw binnen via de sheet-sync (allemaal
+      // verwijderd); die maskeerden dat er sinds juli geen echte sollicitant was.
       const { data: newest } = await supabaseAdmin
         .from('Candidate')
         .select('createdAt')
+        .is('deletedAt', null)
         .order('createdAt', { ascending: false })
         .limit(1)
         .maybeSingle();
