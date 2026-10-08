@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { readAllSheetLeads, mapLeadStatusToCallStatus } from '@/lib/google-sheets';
+import { autoAssignCandidate, matchJobForCampaign, type MatchableJob } from '@/lib/recruitment';
 
 /**
  * GET /api/cron/sync-sheets
@@ -84,31 +85,16 @@ export async function GET(request: NextRequest) {
     // Fetch all active job openings for campaign → vacature mapping
     const { data: jobOpenings } = await supabaseAdmin
       .from('JobOpening')
-      .select('id, title, roleType')
+      .select('id, slug, title, roleType')
       .eq('isActive', true);
+    const jobs = (jobOpenings ?? []) as MatchableJob[];
 
-    type JobRow = { id: string; title: string; roleType: string };
-    const jobs = (jobOpenings ?? []) as JobRow[];
-
-    // Map a campaign name to a job opening based on keywords
+    // Campagne-/formuliernaam → vacature. Gedeelde matcher met de Lead Ads-webhook:
+    // "Commercieel Medewerker Binnendienst" en callcenter-campagnes gaan naar de
+    // callcenter-vacature, niet (zoals eerder via het losse trefwoord
+    // "binnendienst") naar Technische Binnendienst.
     function matchJobOpening(campaignName: string, formName: string): string | null {
-      const haystack = `${campaignName} ${formName}`.toLowerCase();
-      // Order matters: more specific first
-      const rules: { keywords: string[]; roleType: string }[] = [
-        { keywords: ['monteur', 'installatie', 'installatiemonteur'], roleType: 'MONTEUR' },
-        { keywords: ['adviseur', 'sales', 'verkoop', 'buitendienst'], roleType: 'ADVISEUR' },
-        { keywords: ['binnendienst', 'technische binnendienst', 'tbm'], roleType: 'BINNENDIENST_TECHNISCH' },
-        { keywords: ['callcenter', 'call center', 'klantcontact'], roleType: 'BINNENDIENST_CALLCENTER' },
-        { keywords: ['magazijn', 'warehouse', 'logistiek'], roleType: 'WAREHOUSE' },
-        { keywords: ['backoffice', 'back office', 'administratie'], roleType: 'BACKOFFICE' },
-      ];
-      for (const rule of rules) {
-        if (rule.keywords.some(kw => haystack.includes(kw))) {
-          const job = jobs.find(j => j.roleType === rule.roleType);
-          if (job) return job.id;
-        }
-      }
-      return null;
+      return matchJobForCampaign(`${campaignName} ${formName}`, jobs)?.id ?? null;
     }
 
     let importedCount = 0;
@@ -165,6 +151,14 @@ export async function GET(request: NextRequest) {
       if (fbId) existingFbIds.add(fbId);
       existingEmails.add(emailKey);
       importedCount++;
+
+      // Toewijzen aan de recruiter van deze vacaturerol (RoleAssignment), net als bij
+      // een sollicitatie via de site — anders bleven Facebook-leads onbeheerd liggen.
+      if (jobOpeningId) {
+        await autoAssignCandidate(newCandidate.id, lead.fullName.trim(), jobOpeningId).catch((err) =>
+          console.error('[cron/sync-sheets] auto-assign mislukt:', newCandidate.id, err),
+        );
+      }
 
       // Add note from sheet status
       const noteParts: string[] = [];
