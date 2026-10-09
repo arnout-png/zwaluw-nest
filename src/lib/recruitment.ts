@@ -20,28 +20,14 @@ export async function autoAssignCandidate(
   jobOpeningId: string,
   opts: { notificationTitle?: string; notificationMessage?: string } = {}
 ): Promise<string | null> {
-  // Fetch the job's roleType
-  const { data: job } = await supabaseAdmin
-    .from('JobOpening')
-    .select('roleType, title')
-    .eq('id', jobOpeningId)
-    .single();
-
-  if (!job?.roleType) return null;
-
-  // Look up the assignment for this role
-  const { data: assignment } = await supabaseAdmin
-    .from('RoleAssignment')
-    .select('userId')
-    .eq('roleType', job.roleType)
-    .maybeSingle();
-
-  if (!assignment?.userId) return null;
+  const recruiter = await recruiterForJob(jobOpeningId);
+  if (!recruiter) return null;
+  const { userId, jobTitle } = recruiter;
 
   // Assign the candidate
   const { error } = await supabaseAdmin
     .from('Candidate')
-    .update({ assignedToId: assignment.userId, updatedAt: new Date().toISOString() })
+    .update({ assignedToId: userId, updatedAt: new Date().toISOString() })
     .eq('id', candidateId);
 
   if (error) {
@@ -51,17 +37,43 @@ export async function autoAssignCandidate(
 
   // Notify the assigned recruiter
   await supabaseAdmin.from('Notification').insert({
-    userId: assignment.userId,
+    userId,
     type: 'NEW_CANDIDATE',
     title: opts.notificationTitle ?? `Nieuwe kandidaat toegewezen: ${candidateName}`,
     message:
       opts.notificationMessage ??
-      `${candidateName} heeft gesolliciteerd op "${job.title}" en is aan jou toegewezen.`,
+      `${candidateName} heeft gesolliciteerd op "${jobTitle}" en is aan jou toegewezen.`,
     isRead: false,
     linkUrl: `/dashboard/werving/${candidateId}`,
   });
 
-  return assignment.userId as string;
+  return userId;
+}
+
+/**
+ * De recruiter van een vacature: RoleAssignment op de roleType van de
+ * JobOpening. Null als de vacature geen roleType heeft of de rol niet is
+ * toegewezen.
+ */
+export async function recruiterForJob(
+  jobOpeningId: string
+): Promise<{ userId: string; jobTitle: string } | null> {
+  const { data: job } = await supabaseAdmin
+    .from('JobOpening')
+    .select('roleType, title')
+    .eq('id', jobOpeningId)
+    .single();
+
+  if (!job?.roleType) return null;
+
+  const { data: assignment } = await supabaseAdmin
+    .from('RoleAssignment')
+    .select('userId')
+    .eq('roleType', job.roleType)
+    .maybeSingle();
+
+  if (!assignment?.userId) return null;
+  return { userId: assignment.userId as string, jobTitle: job.title as string };
 }
 
 /**

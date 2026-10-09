@@ -6,7 +6,7 @@ import {
   isEmailConfigured,
 } from '@/lib/email';
 import { getAutomationConfig } from '@/lib/email-automations';
-import { autoAssignCandidate, systemNoteAuthorId } from '@/lib/recruitment';
+import { autoAssignCandidate, recruiterForJob, systemNoteAuthorId } from '@/lib/recruitment';
 import { sendApplicationCapiEvent } from '@/lib/meta-capi';
 import { isPrivateCvRef } from '@/lib/cv-storage';
 import { classifyLeadSource, describeAttribution, sanitizeAttribution } from '@/lib/lead-source';
@@ -299,6 +299,16 @@ export async function POST(
     }
   }
 
+  // ── Lopende kandidaat die op een ándere vacature solliciteert: eigenaar en
+  // vacature blijven staan, maar de recruiter van de nieuwe vacature moet het
+  // weten. Anders hoort bijv. Vincent nooit dat een monteur-kandidaat van Niels
+  // nu op callcenter solliciteert.
+  let roleRecruiterId: string | null = null;
+  if ((mode === 'in_progress' || mode === 'hired') && existing?.jobOpeningId !== job.id) {
+    const recruiter = await recruiterForJob(job.id);
+    if (recruiter && recruiter.userId !== assignedToId) roleRecruiterId = recruiter.userId;
+  }
+
   // ── Notitie op de kandidaatkaart
   const noteBlocks: string[] = [];
   if (mode === 'reopened' && previousStatus) {
@@ -350,17 +360,30 @@ export async function POST(
       ? `${name} solliciteerde (opnieuw) op "${job.title}"; status is ongewijzigd (${STATUS_LABELS[previousStatus ?? ''] ?? previousStatus}).`
       : `${name} heeft gesolliciteerd op "${job.title}".`;
 
-  if (recipients.size > 0) {
-    const { error: notifError } = await supabaseAdmin.from('Notification').insert(
-      [...recipients].map((userId) => ({
-        userId,
-        type: 'NEW_CANDIDATE',
-        title,
-        message,
-        isRead: false,
-        linkUrl: `/dashboard/werving/${candidateId}`,
-      }))
-    );
+  const roleRecruiterMessage =
+    `${name} solliciteerde op "${job.title}", maar liep al in de werving voor een andere vacature (fase "${STATUS_LABELS[previousStatus ?? ''] ?? previousStatus}"). Toewijzing en status zijn ongewijzigd: overleg met de huidige eigenaar wie het oppakt.`;
+  if (roleRecruiterId) recipients.delete(roleRecruiterId);
+
+  const notifications = [...recipients].map((userId) => ({
+    userId,
+    type: 'NEW_CANDIDATE',
+    title,
+    message,
+    isRead: false,
+    linkUrl: `/dashboard/werving/${candidateId}`,
+  }));
+  if (roleRecruiterId) {
+    notifications.push({
+      userId: roleRecruiterId,
+      type: 'NEW_CANDIDATE',
+      title,
+      message: roleRecruiterMessage,
+      isRead: false,
+      linkUrl: `/dashboard/werving/${candidateId}`,
+    });
+  }
+  if (notifications.length > 0) {
+    const { error: notifError } = await supabaseAdmin.from('Notification').insert(notifications);
     if (notifError) console.error('[apply] meldingen mislukt:', notifError.message);
   }
 
@@ -384,17 +407,23 @@ export async function POST(
 
   after(async () => {
     if (isEmailConfigured()) {
-      // 1. Beheerder (ADMIN_EMAIL) + toegewezen recruiter
+      // 1. Beheerder (ADMIN_EMAIL) + toegewezen recruiter (+ recruiter van de
+      // nieuwe vacature als die iemand anders is)
       const internalTo = new Set<string>();
       if (process.env.ADMIN_EMAIL) internalTo.add(process.env.ADMIN_EMAIL.trim().toLowerCase());
-      if (assignedToId) {
-        const { data: owner } = await supabaseAdmin
+      let roleRecruiterEmail: string | null = null;
+      for (const userId of [assignedToId, roleRecruiterId]) {
+        if (!userId) continue;
+        const { data: user } = await supabaseAdmin
           .from('User')
           .select('email, isActive')
-          .eq('id', assignedToId)
+          .eq('id', userId)
           .maybeSingle();
-        const o = owner as { email?: string; isActive?: boolean } | null;
-        if (o?.email && o.isActive !== false) internalTo.add(o.email.trim().toLowerCase());
+        const u = user as { email?: string; isActive?: boolean } | null;
+        if (!u?.email || u.isActive === false) continue;
+        const addr = u.email.trim().toLowerCase();
+        internalTo.add(addr);
+        if (userId === roleRecruiterId) roleRecruiterEmail = addr;
       }
       for (const to of internalTo) {
         try {
@@ -407,7 +436,8 @@ export async function POST(
             source: sourceLabel,
             campaignId: source.leadCampaignId ?? undefined,
             intro:
-              mode === 'new' ? `${name} heeft gesolliciteerd op "${job.title}" via ${sourceLabel}.`
+              to === roleRecruiterEmail ? roleRecruiterMessage
+              : mode === 'new' ? `${name} heeft gesolliciteerd op "${job.title}" via ${sourceLabel}.`
                 : mode === 'reopened' ? `${name} heeft opnieuw gesolliciteerd op "${job.title}" en staat weer op Nieuw.`
                   : `${name} liep al in de werving (fase "${statusLabel}") en solliciteerde nu op "${job.title}". Status is ongewijzigd.`,
             portalUrl,
